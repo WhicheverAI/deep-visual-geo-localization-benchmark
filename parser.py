@@ -2,90 +2,97 @@
 import os
 import torch
 import argparse
+from pydantic import BaseModel, Field
+import argparse
+from typing import List
 
-
+class ArgumentModel(BaseModel):
+    def create_parser(self):
+        """
+        Create an ArgumentParser based on the ArgumentModel.
+        """
+        schema = self.schema() # 应该得到的是子类的 schema 吧
+        schema_properties = schema["properties"]
+        parser = argparse.ArgumentParser(description='Process some data.')
+        print(self.__annotations__.items())
+        for name, pydantic_type in self.__annotations__.items():
+            # parser.add_argument(f'--{name.replace("_", "-")}', 
+            field_info = schema_properties[name]
+            filtered_field_info = {key: value for key, value in field_info.items() 
+                                   if key in ['default', 'help', 'choices']}
+            parser.add_argument(f'--{name}', 
+                                type=pydantic_type, 
+                                # default=getattr(self, name), 
+                                # default=field_info['default'], 
+                                # help=field_info['help']
+                                **filtered_field_info # 自动填充需要的东西
+                                )
+        return parser
+    
+class VPRModel(ArgumentModel):
+    train_batch_size: int = Field(4, help="Number of triplets (query, pos, negs) in a batch. Each triplet consists of 12 images")
+    infer_batch_size: int = Field(16, help="Batch size for inference (caching and testing)")
+    criterion: str = Field('triplet', help='Loss to be used', choices=["triplet", "sare_ind", "sare_joint"])
+    margin: float = Field(0.1, help="Margin for the triplet loss")
+    epochs_num: int = Field(1000, help="Number of epochs to train for")
+    patience: int = Field(3)
+    lr: float = Field(0.00001, help="_")
+    lr_crn_layer: float = Field(5e-3, help="Learning rate for the CRN layer")
+    lr_crn_net: float = Field(5e-4, help="Learning rate to finetune pretrained network when using CRN")
+    optim: str = Field("adam", help="_", choices=["adam", "sgd"])
+    cache_refresh_rate: int = Field(1000, help="How often to refresh cache, in number of queries")
+    queries_per_epoch: int = Field(5000, help="How many queries to consider for one epoch. Must be multiple of cache_refresh_rate")
+    negs_num_per_query: int = Field(10, help="How many negatives to consider per each query in the loss")
+    neg_samples_num: int = Field(1000, help="How many negatives to use to compute the hardest ones")
+    mining: str = Field("partial", choices=["partial", "full", "random", "msls_weighted"])
+    backbone: str = Field("resnet18conv4", choices=["alexnet", "vgg16", "resnet18conv4", "resnet18conv5",
+                                                    "resnet50conv4", "resnet50conv5", "resnet101conv4", "resnet101conv5",
+                                                    "cct384", "vit"], help="_")
+    l2: str = Field("before_pool", choices=["before_pool", "after_pool", "none"],
+                   help="When (and if) to apply the l2 norm with shallow aggregation layers")
+    aggregation: str = Field("netvlad", choices=["netvlad", "gem", "spoc", "mac", "rmac", "crn", "rrm",
+                                                 "cls", "seqpool"])
+    netvlad_clusters: int = Field(64, help="Number of clusters for NetVLAD layer.")
+    pca_dim: int = Field(None, help="PCA dimension (number of principal components). If None, PCA is not used.")
+    fc_output_dim: int = Field(None, help="Output dimension of fully connected layer. If None, don't use a fully connected layer.")
+    pretrain: str = Field("imagenet", choices=['imagenet', 'gldv2', 'places'],
+                         help="Select the pretrained weights for the starting network")
+    off_the_shelf: str = Field("imagenet", choices=["imagenet", "radenovic_sfm", "radenovic_gldv1", "naver"],
+                               help="Off-the-shelf networks from popular GitHub repos. Only with ResNet-50/101 + GeM + FC 2048")
+    trunc_te: int = Field(None, choices=list(range(0, 14)))
+    freeze_te: int = Field(None, choices=list(range(-1, 14)))
+    seed: int = Field(0)
+    resume: str = Field(None, help="Path to load checkpoint from, for resuming training or testing.")
+    device: str = Field("cuda", choices=["cuda", "cpu"])
+    num_workers: int = Field(8, help="num_workers for all dataloaders")
+    resize: List[int] = Field([480, 640], nargs=2, help="Resizing shape for images (HxW).")
+    test_method: str = Field("hard_resize",
+                             choices=["hard_resize", "single_query", "central_crop", "five_crops", "nearest_crop", "maj_voting"],
+                             help="This includes pre/post-processing methods and prediction refinement")
+    majority_weight: float = Field(0.01, help="Only for majority voting, scale factor, the higher it is the more importance is given to agreement")
+    efficient_ram_testing: bool = Field(False, help="_")
+    val_positive_dist_threshold: int = Field(25, help="_")
+    train_positives_dist_threshold: int = Field(10, help="_")
+    recall_values: List[int] = Field([1, 5, 10, 20],
+                                     help="Recalls to be computed, such as R@5.")
+    brightness: float = Field(0, help="_")
+    contrast: float = Field(0, help="_")
+    saturation: float = Field(0, help="_")
+    hue: float = Field(0, help="_")
+    rand_perspective: float = Field(0, help="_")
+    horizontal_flip: bool = Field(False, help="_")
+    random_resized_crop: float = Field(0, help="_")
+    random_rotation: float = Field(0, help="_")
+    datasets_folder: str = Field("../VPR-datasets-downloader/datasets", help="Path with all datasets")
+    dataset_name: str = Field("pitts30k", help="Relative path of the dataset")
+    pca_dataset_folder: str = Field(None, help="Path with images to be used to compute PCA (ie: pitts30k/images/train")
+    save_dir: str = Field("default",
+                          help="Folder name of the current run (saved in ./logs/)")
+    
 def parse_arguments():
-    parser = argparse.ArgumentParser(description="Benchmarking Visual Geolocalization",
-                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    # Training parameters
-    parser.add_argument("--train_batch_size", type=int, default=4,
-                        help="Number of triplets (query, pos, negs) in a batch. Each triplet consists of 12 images")
-    parser.add_argument("--infer_batch_size", type=int, default=16,
-                        help="Batch size for inference (caching and testing)")
-    parser.add_argument("--criterion", type=str, default='triplet', help='loss to be used',
-                        choices=["triplet", "sare_ind", "sare_joint"])
-    parser.add_argument("--margin", type=float, default=0.1,
-                        help="margin for the triplet loss")
-    parser.add_argument("--epochs_num", type=int, default=1000,
-                        help="number of epochs to train for")
-    parser.add_argument("--patience", type=int, default=3)
-    parser.add_argument("--lr", type=float, default=0.00001, help="_")
-    parser.add_argument("--lr_crn_layer", type=float, default=5e-3, help="Learning rate for the CRN layer")
-    parser.add_argument("--lr_crn_net", type=float, default=5e-4, help="Learning rate to finetune pretrained network when using CRN")
-    parser.add_argument("--optim", type=str, default="adam", help="_", choices=["adam", "sgd"])
-    parser.add_argument("--cache_refresh_rate", type=int, default=1000,
-                        help="How often to refresh cache, in number of queries")
-    parser.add_argument("--queries_per_epoch", type=int, default=5000,
-                        help="How many queries to consider for one epoch. Must be multiple of cache_refresh_rate")
-    parser.add_argument("--negs_num_per_query", type=int, default=10,
-                        help="How many negatives to consider per each query in the loss")
-    parser.add_argument("--neg_samples_num", type=int, default=1000,
-                        help="How many negatives to use to compute the hardest ones")
-    parser.add_argument("--mining", type=str, default="partial", choices=["partial", "full", "random", "msls_weighted"])
-    # Model parameters
-    parser.add_argument("--backbone", type=str, default="resnet18conv4",
-                        choices=["alexnet", "vgg16", "resnet18conv4", "resnet18conv5",
-                                 "resnet50conv4", "resnet50conv5", "resnet101conv4", "resnet101conv5",
-                                 "cct384", "vit"], help="_")
-    parser.add_argument("--l2", type=str, default="before_pool", choices=["before_pool", "after_pool", "none"],
-                        help="When (and if) to apply the l2 norm with shallow aggregation layers")
-    parser.add_argument("--aggregation", type=str, default="netvlad", choices=["netvlad", "gem", "spoc", "mac", "rmac", "crn", "rrm",
-                                                                               "cls", "seqpool"])
-    parser.add_argument('--netvlad_clusters', type=int, default=64, help="Number of clusters for NetVLAD layer.")
-    parser.add_argument('--pca_dim', type=int, default=None, help="PCA dimension (number of principal components). If None, PCA is not used.")
-    parser.add_argument('--fc_output_dim', type=int, default=None,
-                        help="Output dimension of fully connected layer. If None, don't use a fully connected layer.")
-    parser.add_argument('--pretrain', type=str, default="imagenet", choices=['imagenet', 'gldv2', 'places'],
-                        help="Select the pretrained weights for the starting network")
-    parser.add_argument("--off_the_shelf", type=str, default="imagenet", choices=["imagenet", "radenovic_sfm", "radenovic_gldv1", "naver"],
-                        help="Off-the-shelf networks from popular GitHub repos. Only with ResNet-50/101 + GeM + FC 2048")
-    parser.add_argument("--trunc_te", type=int, default=None, choices=list(range(0, 14)))
-    parser.add_argument("--freeze_te", type=int, default=None, choices=list(range(-1, 14)))
-    # Initialization parameters
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--resume", type=str, default=None,
-                        help="Path to load checkpoint from, for resuming training or testing.")
-    # Other parameters
-    parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"])
-    parser.add_argument("--num_workers", type=int, default=8, help="num_workers for all dataloaders")
-    parser.add_argument('--resize', type=int, default=[480, 640], nargs=2, help="Resizing shape for images (HxW).")
-    parser.add_argument('--test_method', type=str, default="hard_resize",
-                        choices=["hard_resize", "single_query", "central_crop", "five_crops", "nearest_crop", "maj_voting"],
-                        help="This includes pre/post-processing methods and prediction refinement")
-    parser.add_argument("--majority_weight", type=float, default=0.01,
-                        help="only for majority voting, scale factor, the higher it is the more importance is given to agreement")
-    parser.add_argument("--efficient_ram_testing", action='store_true', help="_")
-    parser.add_argument("--val_positive_dist_threshold", type=int, default=25, help="_")
-    parser.add_argument("--train_positives_dist_threshold", type=int, default=10, help="_")
-    parser.add_argument('--recall_values', type=int, default=[1, 5, 10, 20], nargs="+",
-                        help="Recalls to be computed, such as R@5.")
-    # Data augmentation parameters
-    parser.add_argument("--brightness", type=float, default=0, help="_")
-    parser.add_argument("--contrast", type=float, default=0, help="_")
-    parser.add_argument("--saturation", type=float, default=0, help="_")
-    parser.add_argument("--hue", type=float, default=0, help="_")
-    parser.add_argument("--rand_perspective", type=float, default=0, help="_")
-    parser.add_argument("--horizontal_flip", action='store_true', help="_")
-    parser.add_argument("--random_resized_crop", type=float, default=0, help="_")
-    parser.add_argument("--random_rotation", type=float, default=0, help="_")
-    # Paths parameters
-    parser.add_argument("--datasets_folder", type=str, default=None, help="Path with all datasets")
-    parser.add_argument("--dataset_name", type=str, default="pitts30k", help="Relative path of the dataset")
-    parser.add_argument("--pca_dataset_folder", type=str, default=None,
-                        help="Path with images to be used to compute PCA (ie: pitts30k/images/train")
-    parser.add_argument("--save_dir", type=str, default="default",
-                        help="Folder name of the current run (saved in ./logs/)")
-    args = parser.parse_args()
+    arg_parser = VPRModel().create_parser()
+    args_parsed = arg_parser.parse_args()
+    args = VPRModel(**vars(args_parsed))
     
     if args.datasets_folder is None:
         try:
