@@ -12,3 +12,4 @@ requests==2.26.0
 timm==0.4.12
 transformers==4.8.2
 einops
+pydantic==1.10.7
