@@ -103,10 +103,11 @@ class NetVLAD(nn.Module):
         self.alpha = 0
         self.normalize_input = normalize_input
         self.work_with_tokens = work_with_tokens
-        if work_with_tokens:
-            self.conv = nn.Conv1d(dim, clusters_num, kernel_size=1, bias=False)
-        else:
-            self.conv = nn.Conv2d(dim, clusters_num, kernel_size=(1, 1), bias=False)
+        # if work_with_tokens:
+        #     self.conv = nn.Conv1d(dim, clusters_num, kernel_size=1, bias=False)
+        # else:
+            # self.conv = nn.Conv2d(dim, clusters_num, kernel_size=(1, 1), bias=False)
+        self.conv = nn.Conv2d(dim, clusters_num, kernel_size=(1, 1), bias=False)
         self.centroids = nn.Parameter(torch.rand(clusters_num, dim))
 
     def init_params(self, centroids, descriptors):
@@ -117,18 +118,21 @@ class NetVLAD(nn.Module):
 
         self.alpha = (-np.log(0.01) / np.mean(dots[0,:] - dots[1,:])).item()
         self.centroids = nn.Parameter(torch.from_numpy(centroids))
-        if self.work_with_tokens:
-            self.conv.weight = nn.Parameter(torch.from_numpy(self.alpha * centroids_assign).unsqueeze(2))
-        else:
-            self.conv.weight = nn.Parameter(torch.from_numpy(self.alpha*centroids_assign).unsqueeze(2).unsqueeze(3))
+        # if self.work_with_tokens:
+        #     self.conv.weight = nn.Parameter(torch.from_numpy(self.alpha * centroids_assign).unsqueeze(2))
+        # else:
+            # self.conv.weight = nn.Parameter(torch.from_numpy(self.alpha*centroids_assign).unsqueeze(2).unsqueeze(3))
+        self.conv.weight = nn.Parameter(torch.from_numpy(self.alpha*centroids_assign).unsqueeze(2).unsqueeze(3))
+
         self.conv.bias = None
 
     def forward(self, x):
-        if self.work_with_tokens:
-            x = x.permute(0, 2, 1)
-            N, D, _ = x.shape[:]
-        else:
-            N, D, H, W = x.shape[:]
+        # if self.work_with_tokens:
+        #     x = x.permute(0, 2, 1)
+        #     N, D, _ = x.shape[:]
+        # else:
+            # N, D, H, W = x.shape[:]
+        N, D, H, W = x.shape[:]
         if self.normalize_input:
             x = F.normalize(x, p=2, dim=1)  # Across descriptor dim
         x_flatten = x.view(N, D, -1)

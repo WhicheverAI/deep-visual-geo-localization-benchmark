@@ -6,6 +6,7 @@ import torchvision
 from torch import nn
 from os.path import join
 from transformers import ViTModel
+from transformers import AutoImageProcessor, AutoModel
 from google_drive_downloader import GoogleDriveDownloader as gdd
 
 from model.cct import cct_14_7x2_384
@@ -13,6 +14,11 @@ from model.aggregation import Flatten
 from model.normalization import L2Norm
 import model.aggregation as aggregation
 
+import peft
+# print(f"PEFT version: {peft.__version__}")  # debug用
+from peft import LoraConfig, get_peft_model
+
+from loguru import logger
 # Pretrained models on Google Landmarks v2 and Places 365
 PRETRAINED_MODELS = {
     'resnet18_places'  : '1DnEQXhmPxtBUrRc81nAvT8z17bk-GBj5',
@@ -105,7 +111,11 @@ def get_pretrained_model(args):
 
 def get_backbone(args):
     # The aggregation layer works differently based on the type of architecture
-    args.work_with_tokens = args.backbone.startswith('cct') or args.backbone.startswith('vit')
+    # TODO 如果你的模型是vit，那么这里应该设置
+    args.work_with_tokens = (args.backbone.startswith('cct') or 
+                             args.backbone.startswith('vit') or 
+                             args.backbone.startswith('dino'))
+    # args.work_with_tokens = False
     if args.backbone.startswith("resnet"):
         if args.pretrain in ['places', 'gldv2']:
             backbone = get_pretrained_model(args)
@@ -160,23 +170,48 @@ def get_backbone(args):
         return backbone
     elif args.backbone.startswith("vit"):
         assert args.resize[0] in [224, 384], f'Image size for ViT must be either 224 or 384, but it\'s {args.resize[0]}'
-        if args.resize[0] == 224:
-            backbone = ViTModel.from_pretrained('google/vit-base-patch16-224-in21k')
-        elif args.resize[0] == 384:
-            backbone = ViTModel.from_pretrained('google/vit-base-patch16-384')
+        
+        if args.pretrain == 'dinov2':
+            # backbone = ViTModel.from_pretrained('nateraw/dino_vits8')
+            # backbone = ViTModel.from_pretrained('timm/vit_base_patch14_dinov2.lvd142m')
+            # backbone = ViTModel.from_pretrained('facebook/dinov2-base') # 似乎不对？
+            backbone = AutoModel.from_pretrained('facebook/dinov2-base')
+        else:
+            if args.resize[0] == 224:
+                backbone = ViTModel.from_pretrained('google/vit-base-patch16-224-in21k')
+            elif args.resize[0] == 384:
+                backbone = ViTModel.from_pretrained('google/vit-base-patch16-384')
 
         if args.trunc_te:
             logging.debug(f"Truncate ViT at transformers encoder {args.trunc_te}")
             backbone.encoder.layer = backbone.encoder.layer[:args.trunc_te]
         if args.freeze_te:
-            logging.debug(f"Freeze all the layers up to tranformer encoder {args.freeze_te+1}")
+            # logging.debug(f"Freeze all the layers up to tranformer encoder {args.freeze_te+1}")
+            logging.debug(f"Freeze all the layers up to tranformer encoder {args.freeze_te}")
             for p in backbone.parameters():
                 p.requires_grad = False
             for name, child in backbone.encoder.layer.named_children():
-                if int(name) > args.freeze_te:
+                assert name.isdigit(), f"Unexpected name '{name}' in ViT encoder, should be an integer."
+                if int(name) >= args.freeze_te: # >=逻辑更加合理，就是冻结多少层。比如8，则冻结0-7层共8层。
                     for params in child.parameters():
                         params.requires_grad = True
+        
         backbone = VitWrapper(backbone, args.aggregation)
+        if args.peft:
+            # lora 微调
+            backbone = get_peft_model(backbone , 
+                            LoraConfig(
+                                r=16,  # Lora矩阵的中间维度。=r 越小，可训练的参数越少，压缩程度越高
+                                lora_alpha=16,  #  LoRA 矩阵的稀疏性=非零元素的比例。lora_alpha 越小，可训练的参数越少，稀疏程度越高.
+                                # target_modules=['qkv'],  # 这里指定想要被 Lora 微调的模块
+                                target_modules=["query", "value"],  # https://github.com/huggingface/peft/blob/main/examples/image_classification/image_classification_peft_lora.ipynb
+                                # lora_dropout=0.5, # 防止过拟合，提高泛化能力
+                                lora_dropout=0.1, # 防止过拟合，提高泛化能力
+                                bias="none",  # bias是否冻结
+                                )              
+                            )
+            logging.info(f"Using PEFT {args.peft}for fine-tuning. ")
+            backbone.print_trainable_parameters()
         
         args.features_dim = 768
         return backbone
@@ -193,10 +228,16 @@ class VitWrapper(nn.Module):
         self.aggregation = aggregation
     def forward(self, x):
         if self.aggregation in ["netvlad", "gem"]:
-            return self.vit_model(x).last_hidden_state[:, 1:, :]
+            res = self.vit_model(x).last_hidden_state[:, 1:, :]
         else:
-            return self.vit_model(x).last_hidden_state[:, 0, :]
-
+            res = self.vit_model(x).last_hidden_state[:, 0, :]
+        # logger.info(f"x.shape: {x.shape}") # batch, patch数量, embed dim
+        batch, patches, embed_dim = res.shape
+        patch_side = int(patches ** 0.5)
+        assert patch_side * patch_side == patches, f"Patch数量{patches}不是平方数"
+        res = res.view(batch, patch_side, patch_side, embed_dim)
+        res = res.permute(0, 3, 1, 2)
+        return res
 
 def get_output_channels_dim(model):
     """Return the number of channels in the output of a model."""
