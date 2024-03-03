@@ -22,7 +22,11 @@ from model.functional import sare_ind, sare_joint
 
 torch.backends.cudnn.benchmark = True  # Provides a speedup
 #### Initial setup: parser, logging...
+# 在parser.py文件定义了输入的参数以及检查方法。
 args = parser.parse_arguments()
+
+
+
 start_time = datetime.now()
 args.save_dir = join("logs", args.save_dir, start_time.strftime('%Y-%m-%d_%H-%M-%S'))
 commons.setup_logging(args.save_dir)
@@ -31,7 +35,20 @@ logging.info(f"Arguments: {args}")
 logging.info(f"The outputs are being saved in {args.save_dir}")
 logging.info(f"Using {torch.cuda.device_count()} GPUs and {multiprocessing.cpu_count()} CPUs")
 
+if not args.no_wandb:
+    import wandb
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="vpr-benchmark",
+        # track hyperparameters and run metadata
+        config=args
+        # .dict(),
+    )
+else:
+    logging.debug("Not using wandb. ")
 #### Creation of Datasets
+# 这里很重要，是这个任务的核心操作。
+
 logging.debug(f"Loading dataset {args.dataset_name} from folder {args.datasets_folder}")
 
 triplets_ds = datasets_ws.TripletsDataset(args, args.datasets_folder, args.dataset_name, "train", args.negs_num_per_query)
@@ -176,6 +193,10 @@ for epoch_num in range(start_epoch_num, args.epochs_num):
         logging.debug(f"Epoch[{epoch_num:02d}]({loop_num}/{loops_num}): " +
                       f"current batch triplet loss = {batch_loss:.4f}, " +
                       f"average epoch triplet loss = {epoch_losses.mean():.4f}")
+        if not args.no_wandb:
+            wandb.log({"epoch_losses": epoch_losses.mean(), "batch_loss": batch_loss}, 
+                  step = epoch_num*loops_num + loop_num
+                  )
     
     logging.info(f"Finished epoch {epoch_num:02d} in {str(datetime.now() - epoch_start_time)[:-7]}, "
                  f"average epoch triplet loss = {epoch_losses.mean():.4f}")
@@ -183,6 +204,14 @@ for epoch_num in range(start_epoch_num, args.epochs_num):
     # Compute recalls on validation set
     recalls, recalls_str = test.test(args, val_ds, model)
     logging.info(f"Recalls on val set {val_ds}: {recalls_str}")
+    try:
+        recalls_dict = {f"R@{val}": f"{rec:.1f}" for val, rec in zip(args.recall_values, recalls)}
+        if not args.no_wandb:
+            wandb.log(recalls_dict, 
+                step=epoch_num
+                )
+    except Exception as e:
+        print(e)
     
     is_best = recalls[1] > best_r5
     
@@ -215,3 +244,5 @@ model.load_state_dict(best_model_state_dict)
 
 recalls, recalls_str = test.test(args, test_ds, model, test_method=args.test_method)
 logging.info(f"Recalls on {test_ds}: {recalls_str}")
+if not args.no_wandb:
+    wandb.finish()
