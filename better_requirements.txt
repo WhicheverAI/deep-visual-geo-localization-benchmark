@@ -1,0 +1,18 @@
+pydantic==1.10.7
+numpy
+psutil
+faiss_cpu
+tqdm
+Pillow
+scikit_learn
+torchscan
+googledrivedownloader
+requests
+timm
+transformers
+einops
+
+# torch==1.7.0
+
+# 复现记录
+# conda用的是cv
