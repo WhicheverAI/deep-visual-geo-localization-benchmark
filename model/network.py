@@ -38,6 +38,8 @@ class GeoLocalizationNet(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.backbone = get_backbone(args)
+        if args.work_with_tokens:
+            self.backbone = nn.Sequential(self.backbone, VitPermuteAsCNN())
         self.arch_name = args.backbone
         self.aggregation = get_aggregation(args)
 
@@ -231,13 +233,21 @@ class VitWrapper(nn.Module):
             res = self.vit_model(x).last_hidden_state[:, 1:, :]
         else:
             res = self.vit_model(x).last_hidden_state[:, 0, :]
+        return res
+
+class VitPermuteAsCNN(nn.Module):
+    """Some Information about VitPermuteAsCNN"""
+    def __init__(self):
+        super(VitPermuteAsCNN, self).__init__()
+
+    def forward(self, x):
         # logger.info(f"x.shape: {x.shape}") # batch, patch数量, embed dim
-        batch, patches, embed_dim = res.shape
+        batch, patches, embed_dim = x.shape
         patch_side = int(patches ** 0.5)
         assert patch_side * patch_side == patches, f"Patch数量{patches}不是平方数"
-        res = res.view(batch, patch_side, patch_side, embed_dim)
-        res = res.permute(0, 3, 1, 2)
-        return res
+        x = x.view(batch, patch_side, patch_side, embed_dim)
+        x = x.permute(0, 3, 1, 2)
+        return x
 
 def get_output_channels_dim(model):
     """Return the number of channels in the output of a model."""
