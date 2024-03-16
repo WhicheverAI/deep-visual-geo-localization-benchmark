@@ -8,7 +8,15 @@ from typing import List
 from pathlib import Path
 this_file = Path(__file__).resolve()
 this_directory = this_file.parent
-
+#%%
+import peft
+# T = peft.PeftType
+# L = T.LORA
+# L.name, L.value
+# T(L.name) is L
+# T.__members__.items()
+# list(T)
+#%%
 class ArgumentModel(BaseModel):
     def create_parser(self):
         """
@@ -55,8 +63,8 @@ class VPRModel(ArgumentModel):
     no_wandb: bool = Field(False, help="Disable wandb logging")
     # no_wandb: bool = Field(True, help="Disable wandb logging")
     train_batch_size: int = Field(
-        # 4,
-        16,
+        4,
+        # 16,
         help="Number of triplets (query, pos, negs) in a batch. Each triplet consists of 12 images",
     )
     infer_batch_size: int = Field(
@@ -147,10 +155,14 @@ class VPRModel(ArgumentModel):
         help="Off-the-shelf networks from popular GitHub repos. Only with ResNet-50/101 + GeM + FC 2048",
     )
     trunc_te: int = Field(None, choices=list(range(0, 14)))
-    # freeze_te: int = Field(None, choices=list(range(-1, 14)))
-    freeze_te: int = Field(8, choices=list(range(-1, 14)))
-    peft: str = Field(None, choices=['lora'])
-    # peft: str = Field('lora', choices=['lora'])
+    freeze_te: int = Field(None, choices=list(range(-1, 14)))
+    # freeze_te: int = Field(8, choices=list(range(-1, 14)))
+    # peft: str = Field(None, choices=['lora'])
+    peft: str = Field(
+        # None,
+        # peft.PeftType.LORA.name,
+        peft.PeftType.OFT.name,
+        choices=list(peft.PeftType.__members__.keys()))
     seed: int = Field(0)
     resume: str = Field(
         None, help="Path to load checkpoint from, for resuming training or testing."
