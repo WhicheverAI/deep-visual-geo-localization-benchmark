@@ -38,7 +38,7 @@ PRETRAINED_MODELS = {
 class GeoLocalizationNet(nn.Module):
     """The used networks are composed of a backbone and an aggregation layer.
     """
-    def __init__(self, args):
+    def __init__(self, args:VPRModel):
         super().__init__()
         self.backbone = get_backbone(args)
         if args.work_with_tokens:
@@ -67,7 +67,7 @@ class GeoLocalizationNet(nn.Module):
         return x
 
 
-def get_aggregation(args):
+def get_aggregation(args:VPRModel):
     if args.aggregation == "gem":
         return aggregation.GeM(work_with_tokens=args.work_with_tokens)
     elif args.aggregation == "spoc":
@@ -87,7 +87,7 @@ def get_aggregation(args):
         return nn.Identity()
 
 
-def get_pretrained_model(args):
+def get_pretrained_model(args:VPRModel):
     if args.pretrain == 'places':  num_classes = 365
     elif args.pretrain == 'gldv2':  num_classes = 512
     
