@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, SubsetRandomSampler
 
 import model.functional as LF
 import model.normalization as normalization
-
+from parser import VPRModel
 class MAC(nn.Module):
     def __init__(self):
         super().__init__()
@@ -149,7 +149,7 @@ class NetVLAD(nn.Module):
         vlad = F.normalize(vlad, p=2, dim=1)  # L2 normalize
         return vlad
 
-    def initialize_netvlad_layer(self, args, cluster_ds, backbone):
+    def initialize_netvlad_layer(self, args:VPRModel, cluster_ds, backbone):
         descriptors_num = 50000
         descs_num_per_image = 100
         images_num = math.ceil(descriptors_num / descs_num_per_image)

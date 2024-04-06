@@ -14,6 +14,7 @@ from torch.utils.data.dataset import Subset
 from sklearn.neighbors import NearestNeighbors
 from torch.utils.data.dataloader import DataLoader
 
+from parser import VPRModel
 
 base_transform = T.Compose([
     T.ToTensor(),
@@ -50,7 +51,7 @@ def collate_fn(batch):
 
 
 class PCADataset(data.Dataset):
-    def __init__(self, args, datasets_folder="dataset", dataset_folder="pitts30k/images/train"):
+    def __init__(self, args:VPRModel, datasets_folder="dataset", dataset_folder="pitts30k/images/train"):
         dataset_folder_full_path = join(datasets_folder, dataset_folder)
         if not os.path.exists(dataset_folder_full_path):
             raise FileNotFoundError(f"Folder {dataset_folder_full_path} does not exist")
@@ -66,7 +67,7 @@ class PCADataset(data.Dataset):
 class BaseDataset(data.Dataset):
     """Dataset with images from database and queries, used for inference (testing and building cache).
     """
-    def __init__(self, args, datasets_folder="datasets", dataset_name="pitts30k", split="train"):
+    def __init__(self, args:VPRModel, datasets_folder="datasets", dataset_name="pitts30k", split="train"):
         super().__init__()
         self.args = args
         self.dataset_name = dataset_name
@@ -180,6 +181,9 @@ class TripletsDataset(BaseDataset):
         self.hard_positives_per_query = list(knn.radius_neighbors(self.queries_utms,
                                              radius=args.train_positives_dist_threshold,  # 10 meters
                                              return_distance=False))
+        logging.debug(f"self.hard_positives_per_query[0]={self.hard_positives_per_query[0:5]}")
+        logging.debug(f"len(self.hard_positives_per_query)={len(self.hard_positives_per_query)}")
+        self.hard_positives_per_query = np.array(self.hard_positives_per_query)
         
         #### Some queries might have no positive, we should remove those queries.
         queries_without_any_hard_positive = np.where(np.array([len(p) for p in self.hard_positives_per_query], dtype=object) == 0)[0]
@@ -187,6 +191,7 @@ class TripletsDataset(BaseDataset):
             logging.info(f"There are {len(queries_without_any_hard_positive)} queries without any positives " +
                          "within the training set. They won't be considered as they're useless for training.")
         # Remove queries without positives
+        logging.debug(f"len(self.hard_positives_per_query)={len(self.hard_positives_per_query)}; queries_without_any_hard_positive.shape={queries_without_any_hard_positive.shape}")
         self.hard_positives_per_query = np.delete(self.hard_positives_per_query, queries_without_any_hard_positive)
         self.soft_positives_per_query = np.delete(self.soft_positives_per_query, queries_without_any_hard_positive)
         self.queries_paths = np.delete(self.queries_paths, queries_without_any_hard_positive)
@@ -235,7 +240,7 @@ class TripletsDataset(BaseDataset):
         else:
             return len(self.triplets_global_indexes)
     
-    def compute_triplets(self, args, model):
+    def compute_triplets(self, args:VPRModel, model):
         self.is_inference = True
         if self.mining == "full":
             self.compute_triplets_full(args, model)
@@ -245,7 +250,7 @@ class TripletsDataset(BaseDataset):
             self.compute_triplets_random(args, model)
     
     @staticmethod
-    def compute_cache(args, model, subset_ds, cache_shape):
+    def compute_cache(args:VPRModel, model, subset_ds, cache_shape):
         """Compute the cache containing features of images, which is used to
         find best positive and hardest negatives."""
         subset_dl = DataLoader(dataset=subset_ds, num_workers=args.num_workers,
@@ -271,7 +276,7 @@ class TripletsDataset(BaseDataset):
                                "There might be some bug with caching")
         return query_features
     
-    def get_best_positive_index(self, args, query_index, cache, query_features):
+    def get_best_positive_index(self, args:VPRModel, query_index, cache, query_features):
         positives_features = cache[self.hard_positives_per_query[query_index]]
         faiss_index = faiss.IndexFlatL2(args.features_dim)
         faiss_index.add(positives_features)
@@ -280,7 +285,7 @@ class TripletsDataset(BaseDataset):
         best_positive_index = self.hard_positives_per_query[query_index][best_positive_num[0]].item()
         return best_positive_index
     
-    def get_hardest_negatives_indexes(self, args, cache, query_features, neg_samples):
+    def get_hardest_negatives_indexes(self, args:VPRModel, cache, query_features, neg_samples):
         neg_features = cache[neg_samples]
         faiss_index = faiss.IndexFlatL2(args.features_dim)
         faiss_index.add(neg_features)
@@ -290,7 +295,7 @@ class TripletsDataset(BaseDataset):
         neg_indexes = neg_samples[neg_nums].astype(np.int32)
         return neg_indexes
     
-    def compute_triplets_random(self, args, model):
+    def compute_triplets_random(self, args:VPRModel, model):
         self.triplets_global_indexes = []
         # Take 1000 random queries
         sampled_queries_indexes = np.random.choice(self.queries_num, args.cache_refresh_rate, replace=False)
@@ -346,7 +351,7 @@ class TripletsDataset(BaseDataset):
         # self.triplets_global_indexes is a tensor of shape [1000, 12]
         self.triplets_global_indexes = torch.tensor(self.triplets_global_indexes)
     
-    def compute_triplets_partial(self, args, model):
+    def compute_triplets_partial(self, args:VPRModel, model):
         self.triplets_global_indexes = []
         # Take 1000 random queries
         if self.mining == "partial":

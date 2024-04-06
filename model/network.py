@@ -1,5 +1,6 @@
 
 import os
+from pathlib import Path
 import torch
 import logging
 import torchvision
@@ -19,8 +20,8 @@ import peft
 from peft import LoraConfig, get_peft_model
 
 import wandb
+from parser import VPRModel
 
-from loguru import logger
 # Pretrained models on Google Landmarks v2 and Places 365
 PRETRAINED_MODELS = {
     'resnet18_places'  : '1DnEQXhmPxtBUrRc81nAvT8z17bk-GBj5',
@@ -37,7 +38,7 @@ PRETRAINED_MODELS = {
 class GeoLocalizationNet(nn.Module):
     """The used networks are composed of a backbone and an aggregation layer.
     """
-    def __init__(self, args):
+    def __init__(self, args:VPRModel):
         super().__init__()
         self.backbone = get_backbone(args)
         if args.work_with_tokens:
@@ -66,7 +67,7 @@ class GeoLocalizationNet(nn.Module):
         return x
 
 
-def get_aggregation(args):
+def get_aggregation(args:VPRModel):
     if args.aggregation == "gem":
         return aggregation.GeM(work_with_tokens=args.work_with_tokens)
     elif args.aggregation == "spoc":
@@ -86,7 +87,7 @@ def get_aggregation(args):
         return nn.Identity()
 
 
-def get_pretrained_model(args):
+def get_pretrained_model(args:VPRModel):
     if args.pretrain == 'places':  num_classes = 365
     elif args.pretrain == 'gldv2':  num_classes = 512
     
@@ -113,7 +114,7 @@ def get_pretrained_model(args):
     return model
 
 
-def get_backbone(args):
+def get_backbone(args:VPRModel):
     # The aggregation layer works differently based on the type of architecture
     # TODO 如果你的模型是vit，那么这里应该设置
     args.work_with_tokens = (args.backbone.startswith('cct') or 
@@ -178,10 +179,12 @@ def get_backbone(args):
         if args.pretrain == 'dinov2':
             # backbone = ViTModel.from_pretrained('nateraw/dino_vits8')
             # backbone = ViTModel.from_pretrained('timm/vit_base_patch14_dinov2.lvd142m')
-            # backbone = ViTModel.from_pretrained('facebook/dinov2-base') # 似乎不对？
-            backbone = AutoModel.from_pretrained('facebook/dinov2-base')
+            backbone = AutoModel.from_pretrained('facebook/dinov2-base') # 似乎不对？
+            # path = Path('../../../pretrains/facebook/dinov2-base').resolve()
+            # backbone = AutoModel.from_pretrained(path.as_posix(), local_files_only=True)
         else:
             if args.resize[0] == 224:
+                # backbone = ViTModel.from_pretrained('../../../pretrains/google/vit-base-patch16-224-in21k')
                 backbone = ViTModel.from_pretrained('google/vit-base-patch16-224-in21k')
             elif args.resize[0] == 384:
                 backbone = ViTModel.from_pretrained('google/vit-base-patch16-384')
@@ -224,7 +227,9 @@ def get_backbone(args):
             elif peft_type is peft.PeftType.OFT:
                 config_dict = dict()
             elif peft_type is peft.PeftType.GLORA:
-                config_dict = peft.GLoraConfig(r=16)
+                config_dict = peft.GLoraConfig(r=16)   
+            else:
+                logging.warning(f"Unsupported PEFT type {peft_type}, may not work well. ")
             config_dict = config_dict.__dict__ # 上面是为了约束参数的范围，看到文档，这里是为了灵活性
             config_dict['peft_type'] = peft_type
                         # target_modules=['qkv'],  # 这里指定想要被 Lora 微调的模块
@@ -232,7 +237,8 @@ def get_backbone(args):
             peft_config = peft.get_peft_config(config_dict)
             print(f"peft_config: {peft_config}")
             # wandb.config.update({"peft": args.peft})
-            wandb.config['peft_config'] = peft_config # 更新wandb配置
+            if not args.no_wandb:
+                wandb.config['peft_config'] = peft_config # 更新wandb配置
             # lora 微调
             backbone = get_peft_model(backbone , 
                             peft_config,          
@@ -268,7 +274,7 @@ class VitPermuteAsCNN(nn.Module):
         super(VitPermuteAsCNN, self).__init__()
 
     def forward(self, x):
-        # logger.info(f"x.shape: {x.shape}") # batch, patch数量, embed dim
+        # logging.info(f"x.shape: {x.shape}") # batch, patch数量, embed dim
         batch, patches, embed_dim = x.shape
         patch_side = int(patches ** 0.5)
         assert patch_side * patch_side == patches, f"Patch数量{patches}不是平方数"

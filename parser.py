@@ -1,7 +1,7 @@
 import os
 import torch
 import argparse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, BaseSettings
 import argparse
 from typing import List
 
@@ -18,7 +18,13 @@ import peft
 # list(T)
 from utils import get_env_or_default
 #%%
-class ArgumentModel(BaseModel):
+# class ArgumentModel(BaseModel):
+class ArgumentModel(BaseSettings):
+    """
+    1. 代码中写了默认值
+    2. 读取环境变量，试图覆盖默认值。 环境变量名字和写的一样。值复杂的话用json。
+    3. 实例化，parser读取命令行参数，然后我们重新实例化覆盖参数。
+    """
     def create_parser(self):
         """
         Create an ArgumentParser based on the ArgumentModel.
@@ -58,10 +64,12 @@ class ArgumentModel(BaseModel):
             return self.my_extra_fields[name]
         else:
             super().__getattr__(name)
+    class Config:
+        case_sensitive = False # 环境变量可以大写也可以小写
 
 class VPRModel(ArgumentModel):
-    no_wandb: bool = Field(get_env_or_default("no_wandb", False), help="Disable wandb logging")
-    # no_wandb: bool = Field(True, help="Disable wandb logging")
+    # no_wandb: bool = Field(False, help="Disable wandb logging")
+    no_wandb: bool = Field(True, help="Disable wandb logging")
     train_batch_size: int = Field(
         4,
         # 16,
@@ -163,8 +171,8 @@ class VPRModel(ArgumentModel):
     # peft: str = Field(None, choices=['lora'])
     peft: str = Field(
         # None,
-        # peft.PeftType.LORA.name,
-        peft.PeftType.GLORA.name,
+        peft.PeftType.LORA.name,
+        # peft.PeftType.GLORA.name,
         # peft.PeftType.OFT.name,
         # peft.PeftType.ADALORA.name,
         # peft.PeftType.IA3.name,
@@ -230,6 +238,7 @@ class VPRModel(ArgumentModel):
         help="Folder name of the current run (saved in ./logs/)"
     )
     # addition_experiment_notes:str = Field("big lora, rank 32.")
+    addition_experiment_notes:str = Field("")
 
 
 def parse_arguments()->VPRModel:

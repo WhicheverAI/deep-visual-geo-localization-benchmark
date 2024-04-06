@@ -15,7 +15,7 @@ import os
 
 def get_env_or_default(env_var_key:str, default:str, type=str)->str:
     return os.getenv(env_var_key) or type(default)
-
+from parser import VPRModel
 def get_flops(model, input_shape=(480, 640)):
     """Return the FLOPs as a string, such as '22.33 GFLOPs'"""
     # assert len(input_shape) == 2, f"input_shape should have len==2, but it's {input_shape}"
@@ -25,14 +25,14 @@ def get_flops(model, input_shape=(480, 640)):
     return 0
 
 
-def save_checkpoint(args, state, is_best, filename):
+def save_checkpoint(args:VPRModel, state, is_best, filename):
     model_path = join(args.save_dir, filename)
     torch.save(state, model_path)
     if is_best:
         shutil.copyfile(model_path, join(args.save_dir, "best_model.pth"))
 
 
-def resume_model(args, model):
+def resume_model(args:VPRModel, model):
     checkpoint = torch.load(args.resume, map_location=args.device)
     if 'model_state_dict' in checkpoint:
         state_dict = checkpoint['model_state_dict']
@@ -48,7 +48,7 @@ def resume_model(args, model):
     return model
 
 
-def resume_train(args, model, optimizer=None, strict=False):
+def resume_train(args:VPRModel, model, optimizer=None, strict=False):
     """Load model, optimizer, and other training parameters"""
     logging.debug(f"Loading checkpoint: {args.resume}")
     checkpoint = torch.load(args.resume)
@@ -65,7 +65,7 @@ def resume_train(args, model, optimizer=None, strict=False):
     return model, optimizer, best_r5, start_epoch_num, not_improved_num
 
 
-def compute_pca(args, model, pca_dataset_folder, full_features_dim):
+def compute_pca(args:VPRModel, model, pca_dataset_folder, full_features_dim):
     model = model.eval()
     pca_ds = datasets_ws.PCADataset(args, args.datasets_folder, pca_dataset_folder)
     dl = torch.utils.data.DataLoader(pca_ds, args.infer_batch_size, shuffle=True)
