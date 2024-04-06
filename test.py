@@ -7,8 +7,9 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Subset
 
+from parser import VPRModel
 
-def test_efficient_ram_usage(args, eval_ds, model, test_method="hard_resize"):
+def test_efficient_ram_usage(args:VPRModel, eval_ds, model, test_method="hard_resize"):
     """This function gives the same output as test(), but uses much less RAM.
     This can be useful when testing with large descriptors (e.g. NetVLAD) on large datasets (e.g. San Francisco).
     Obviously it is slower than test(), and can't be used with PCA.
@@ -118,7 +119,7 @@ def test_efficient_ram_usage(args, eval_ds, model, test_method="hard_resize"):
     return recalls, recalls_str
 
 
-def test(args, eval_ds, model, test_method="hard_resize", pca=None):
+def test(args:VPRModel, eval_ds, model, test_method="hard_resize", pca=None):
     """Compute features of the given dataset and compute the recalls."""
     
     assert test_method in ["hard_resize", "single_query", "central_crop", "five_crops",

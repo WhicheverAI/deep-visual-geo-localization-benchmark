@@ -154,6 +154,7 @@ for epoch_num in range(start_epoch_num, args.epochs_num):
             
             # Compute features of all images (images contains queries, positives and negatives)
             features = model(images.to(args.device))
+            # features = model(images)
             loss_triplet = 0
             
             if args.criterion == "triplet":
@@ -205,12 +206,17 @@ for epoch_num in range(start_epoch_num, args.epochs_num):
     recalls, recalls_str = test.test(args, val_ds, model)
     logging.info(f"Recalls on val set {val_ds}: {recalls_str}")
     try:
-        recalls_dict = {f"R@{val}": f"{rec:.1f}" for val, rec in zip(args.recall_values, recalls)}
+        recalls_dict = {f"R@{val}": 
+                        # f"{rec:.1f}" 
+                        float(rec) 
+                        for val, rec in zip(args.recall_values, recalls)}
         if not args.no_wandb:
             wandb.log(recalls_dict, 
-                step=epoch_num
+                # step=epoch_num
+                step=epoch_num*loops_num + loop_num
                 )
     except Exception as e:
+        print("wandb failed to log recall. ")
         print(e)
     
     is_best = recalls[1] > best_r5
