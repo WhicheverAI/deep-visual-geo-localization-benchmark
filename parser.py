@@ -16,6 +16,7 @@ import peft
 # T(L.name) is L
 # T.__members__.items()
 # list(T)
+from utils import get_env_or_default
 #%%
 class ArgumentModel(BaseModel):
     def create_parser(self):
@@ -58,9 +59,8 @@ class ArgumentModel(BaseModel):
         else:
             super().__getattr__(name)
 
-
 class VPRModel(ArgumentModel):
-    no_wandb: bool = Field(False, help="Disable wandb logging")
+    no_wandb: bool = Field(get_env_or_default("no_wandb", False), help="Disable wandb logging")
     # no_wandb: bool = Field(True, help="Disable wandb logging")
     train_batch_size: int = Field(
         4,
@@ -76,7 +76,10 @@ class VPRModel(ArgumentModel):
     margin: float = Field(0.1, help="Margin for the triplet loss")
     epochs_num: int = Field(1000, help="Number of epochs to train for")
     patience: int = Field(3)
-    lr: float = Field(0.00001, help="_")
+    lr: float = Field(
+        0.00001,
+        # 0.00001 * 4,
+        help="_")
     lr_crn_layer: float = Field(5e-3, help="Learning rate for the CRN layer")
     lr_crn_net: float = Field(
         5e-4, help="Learning rate to finetune pretrained network when using CRN"
@@ -155,13 +158,17 @@ class VPRModel(ArgumentModel):
         help="Off-the-shelf networks from popular GitHub repos. Only with ResNet-50/101 + GeM + FC 2048",
     )
     trunc_te: int = Field(None, choices=list(range(0, 14)))
-    freeze_te: int = Field(None, choices=list(range(-1, 14)))
+    freeze_te: int = Field(None, choices=list(range(-1, 14))) #TODO 我改了这个参数的意义，需要改下这个范围
     # freeze_te: int = Field(8, choices=list(range(-1, 14)))
     # peft: str = Field(None, choices=['lora'])
     peft: str = Field(
         # None,
         # peft.PeftType.LORA.name,
-        peft.PeftType.OFT.name,
+        peft.PeftType.GLORA.name,
+        # peft.PeftType.OFT.name,
+        # peft.PeftType.ADALORA.name,
+        # peft.PeftType.IA3.name,
+        # peft.PeftType.PREFIX_TUNING.name,
         choices=list(peft.PeftType.__members__.keys()))
     seed: int = Field(0)
     resume: str = Field(
@@ -222,12 +229,16 @@ class VPRModel(ArgumentModel):
         "default", 
         help="Folder name of the current run (saved in ./logs/)"
     )
+    # addition_experiment_notes:str = Field("big lora, rank 32.")
 
 
 def parse_arguments()->VPRModel:
     arg_parser = VPRModel().create_parser()
     args_parsed = arg_parser.parse_args()
     args = VPRModel(**vars(args_parsed))
+    return post_args_handle(args)
+
+def post_args_handle(args: VPRModel)->VPRModel:
 
     if args.datasets_folder is None:
         try:
@@ -311,3 +322,62 @@ def parse_arguments()->VPRModel:
             )
 
     return args
+
+#%%
+# 设计逻辑：上面我们自己写了 "distribution"字段，表示我们想要让wandb帮我们自动遍历这个参数，注释掉就表示固定下来这个参数。
+# if __name__ == "__main__":
+    # 生成 wandb sweep yaml
+schema = VPRModel.schema()
+#%%
+# https://docs.wandb.ai/guides/sweeps/define-sweep-configuration
+def handle_description_dict(name, description_dict)->dict:
+    if 'distribution' not in description_dict: # 这里是如果跑不了，就用常数表示。
+        # if 'choices' in description_dict:
+        #     return dict(
+        #         distribution="categorical",
+        #         values=description_dict["choices"]
+        #     )
+        if 'default' in description_dict:
+            return dict(
+                distribution="constant", 
+                value=description_dict["default"]
+                )
+        return dict(distribution="constant", 
+                value=None)
+        # raise ValueError(f"no distribution for {name}")
+            
+    new_dict = {}
+    for k, v in description_dict.items():
+        if k=="choices":
+            new_dict['values'] = v
+        if k in ["distribution", "min", "max"]:
+            new_dict[k] = v
+    return new_dict
+sweep_dict = dict(
+    program="sweep.py", 
+    name=f"sweep_{schema['title']}", 
+    # method="bayes",  # random
+    method="grid", 
+    metric=dict(
+            name="test_R@1",
+            # name="R@1",
+            goal="maximize",
+            target=100,
+        ),
+    parameters={
+        name: handle_description_dict(name, description_dict)
+        for name, description_dict in schema["properties"].items() 
+        if name!="my_extra_fields" 
+        # and 'distribution' in description_dict
+    }
+)
+sweep_dict
+#%%
+# from yaml import safe_dump
+# with open("sweep.yaml", "w") as f:
+#     safe_dump(sweep_dict, f, sort_keys=False)
+#%%
+# import subprocess
+# subprocess.check_output("wandb sweep --update handicraft-computing/vpr-benchmark/iyxdn0f6 sweep.yaml", shell=True)
+# %%
+# wandb agent handicraft-computing/vpr-benchmark/iyxdn0f6

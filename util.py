@@ -11,6 +11,10 @@ from sklearn.decomposition import PCA
 
 import datasets_ws
 
+import os
+
+def get_env_or_default(env_var_key:str, default:str, type=str)->str:
+    return os.getenv(env_var_key) or type(default)
 
 def get_flops(model, input_shape=(480, 640)):
     """Return the FLOPs as a string, such as '22.33 GFLOPs'"""
