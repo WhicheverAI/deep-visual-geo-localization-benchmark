@@ -1,5 +1,5 @@
 pydantic==1.10.7
-numpy
+numpy<1.26
 psutil
 faiss_cpu
 tqdm
