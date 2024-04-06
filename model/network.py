@@ -1,5 +1,6 @@
 
 import os
+from pathlib import Path
 import torch
 import logging
 import torchvision
@@ -18,7 +19,9 @@ import peft
 # print(f"PEFT version: {peft.__version__}")  # debug用
 from peft import LoraConfig, get_peft_model
 
-from loguru import logger
+import wandb
+
+from parser import VPRModel
 # Pretrained models on Google Landmarks v2 and Places 365
 PRETRAINED_MODELS = {
     'resnet18_places'  : '1DnEQXhmPxtBUrRc81nAvT8z17bk-GBj5',
@@ -111,7 +114,7 @@ def get_pretrained_model(args):
     return model
 
 
-def get_backbone(args):
+def get_backbone(args:VPRModel):
     # The aggregation layer works differently based on the type of architecture
     # TODO 如果你的模型是vit，那么这里应该设置
     args.work_with_tokens = (args.backbone.startswith('cct') or 
@@ -176,10 +179,12 @@ def get_backbone(args):
         if args.pretrain == 'dinov2':
             # backbone = ViTModel.from_pretrained('nateraw/dino_vits8')
             # backbone = ViTModel.from_pretrained('timm/vit_base_patch14_dinov2.lvd142m')
-            # backbone = ViTModel.from_pretrained('facebook/dinov2-base') # 似乎不对？
-            backbone = AutoModel.from_pretrained('facebook/dinov2-base')
+            backbone = AutoModel.from_pretrained('facebook/dinov2-base') # 似乎不对？
+            # path = Path('../../../pretrains/facebook/dinov2-base').resolve()
+            # backbone = AutoModel.from_pretrained(path.as_posix(), local_files_only=True)
         else:
             if args.resize[0] == 224:
+                # backbone = ViTModel.from_pretrained('../../../pretrains/google/vit-base-patch16-224-in21k')
                 backbone = ViTModel.from_pretrained('google/vit-base-patch16-224-in21k')
             elif args.resize[0] == 384:
                 backbone = ViTModel.from_pretrained('google/vit-base-patch16-384')
@@ -200,19 +205,45 @@ def get_backbone(args):
         
         backbone = VitWrapper(backbone, args.aggregation)
         if args.peft:
+            peft_type = peft.PeftType(args.peft)
+            peft_config_cls = peft.PEFT_TYPE_TO_CONFIG_MAPPING[peft_type]
+            # peft_config = peft_config_cls()
+            config_dict = dict()
+            if peft_type is peft.PeftType.LORA:
+            # or peft_type is peft.PeftType.ADALORA:
+                config_dict = peft.LoraConfig(
+                        r=16,  # Lora矩阵的中间维度。=r 越小，可训练的参数越少，压缩程度越高
+                        # r=32,  # 经过实验还是16好
+                        lora_alpha=16,  #  LoRA 矩阵的稀疏性=非零元素的比例。lora_alpha 越小，可训练的参数越少，稀疏程度越高.
+                        # lora_dropout=0.5, # 防止过拟合，提高泛化能力
+                        lora_dropout=0.1, # 防止过拟合，提高泛化能力
+                        bias="none",  # bias是否冻结
+                    )
+            elif peft_type is peft.PeftType.ADALORA:
+                config_dict = peft.AdaLoraConfig(
+                    target_r=16,
+                    init_r=24
+                )
+            elif peft_type is peft.PeftType.OFT:
+                config_dict = dict()
+            elif peft_type is peft.PeftType.GLORA:
+                config_dict = peft.GLoraConfig(r=16)   
+            else:
+                logging.warning(f"Unsupported PEFT type {peft_type}, may not work well. ")
+            config_dict = config_dict.__dict__ # 上面是为了约束参数的范围，看到文档，这里是为了灵活性
+            config_dict['peft_type'] = peft_type
+                        # target_modules=['qkv'],  # 这里指定想要被 Lora 微调的模块
+            config_dict['target_modules'] = ["query", "value"] # https://github.com/huggingface/peft/blob/main/examples/image_classification/image_classification_peft_lora.ipynb
+            peft_config = peft.get_peft_config(config_dict)
+            print(f"peft_config: {peft_config}")
+            # wandb.config.update({"peft": args.peft})
+            if not args.no_wandb:
+                wandb.config['peft_config'] = peft_config # 更新wandb配置
             # lora 微调
             backbone = get_peft_model(backbone , 
-                            LoraConfig(
-                                r=16,  # Lora矩阵的中间维度。=r 越小，可训练的参数越少，压缩程度越高
-                                lora_alpha=16,  #  LoRA 矩阵的稀疏性=非零元素的比例。lora_alpha 越小，可训练的参数越少，稀疏程度越高.
-                                # target_modules=['qkv'],  # 这里指定想要被 Lora 微调的模块
-                                target_modules=["query", "value"],  # https://github.com/huggingface/peft/blob/main/examples/image_classification/image_classification_peft_lora.ipynb
-                                # lora_dropout=0.5, # 防止过拟合，提高泛化能力
-                                lora_dropout=0.1, # 防止过拟合，提高泛化能力
-                                bias="none",  # bias是否冻结
-                                )              
+                            peft_config,          
                             )
-            logging.info(f"Using PEFT {args.peft}for fine-tuning. ")
+            logging.info(f"Using PEFT method {args.peft} for fine-tuning. ")
             backbone.print_trainable_parameters()
         
         args.features_dim = 768
@@ -228,12 +259,14 @@ class VitWrapper(nn.Module):
         super().__init__()
         self.vit_model = vit_model
         self.aggregation = aggregation
+        self.config = vit_model.config # hf风格
     def forward(self, x):
         if self.aggregation in ["netvlad", "gem"]:
             res = self.vit_model(x).last_hidden_state[:, 1:, :]
         else:
             res = self.vit_model(x).last_hidden_state[:, 0, :]
         return res
+    
 
 class VitPermuteAsCNN(nn.Module):
     """Some Information about VitPermuteAsCNN"""
@@ -241,7 +274,7 @@ class VitPermuteAsCNN(nn.Module):
         super(VitPermuteAsCNN, self).__init__()
 
     def forward(self, x):
-        # logger.info(f"x.shape: {x.shape}") # batch, patch数量, embed dim
+        # logging.info(f"x.shape: {x.shape}") # batch, patch数量, embed dim
         batch, patches, embed_dim = x.shape
         patch_side = int(patches ** 0.5)
         assert patch_side * patch_side == patches, f"Patch数量{patches}不是平方数"
