@@ -3,20 +3,23 @@ import torch
 import argparse
 from pydantic import BaseModel, Field, BaseSettings
 import argparse
-from typing import List
+from typing import List, Optional
 
 from pathlib import Path
 this_file = Path(__file__).resolve()
 this_directory = this_file.parent
 #%%
 import peft
+from opendelta import auto_delta
 # T = peft.PeftType
 # L = T.LORA
 # L.name, L.value
 # T(L.name) is L
 # T.__members__.items()
 # list(T)
-from utils import get_env_or_default
+def get_env_or_default(env_var_key:str, default:str, type=str)->str:
+    return os.getenv(env_var_key) or type(default)
+
 #%%
 # class ArgumentModel(BaseModel):
 class ArgumentModel(BaseSettings):
@@ -68,8 +71,8 @@ class ArgumentModel(BaseSettings):
         case_sensitive = False # 环境变量可以大写也可以小写
 
 class VPRModel(ArgumentModel):
-    # no_wandb: bool = Field(False, help="Disable wandb logging")
-    no_wandb: bool = Field(True, help="Disable wandb logging")
+    no_wandb: bool = Field(False, help="Disable wandb logging")
+    # no_wandb: bool = Field(True, help="Disable wandb logging")
     train_batch_size: int = Field(
         4,
         # 16,
@@ -169,20 +172,26 @@ class VPRModel(ArgumentModel):
     freeze_te: int = Field(None, choices=list(range(-1, 14))) #TODO 我改了这个参数的意义，需要改下这个范围
     # freeze_te: int = Field(8, choices=list(range(-1, 14)))
     # peft: str = Field(None, choices=['lora'])
+    # peft: Optional[str] = Field(
     peft: str = Field(
         # None,
-        peft.PeftType.LORA.name,
+        # peft.PeftType.LORA.name,
         # peft.PeftType.GLORA.name,
         # peft.PeftType.OFT.name,
         # peft.PeftType.ADALORA.name,
         # peft.PeftType.IA3.name,
         # peft.PeftType.PREFIX_TUNING.name,
-        choices=list(peft.PeftType.__members__.keys()))
+        "adapter", 
+        choices=list(peft.PeftType.__members__.keys()
+                     )+list(auto_delta.LAZY_CONFIG_MAPPING.keys()
+                     )+[]
+        )
     seed: int = Field(0)
     resume: str = Field(
         None, help="Path to load checkpoint from, for resuming training or testing."
     )
-    device: str = Field("cuda", choices=["cuda", "cpu"])
+    device: str = Field("cuda", choices=["cuda", "cpu", "auto"])
+    # device: str = Field("auto", choices=["cuda", "cpu", "auto"])
     num_workers: int = Field(8, help="num_workers for all dataloaders")
     resize: List[int] = Field(
         # [480, 640], nargs=2, help="Resizing shape for images (HxW)."
@@ -205,7 +214,8 @@ class VPRModel(ArgumentModel):
         0.01,
         help="Only for majority voting, scale factor, the higher it is the more importance is given to agreement",
     )
-    efficient_ram_testing: bool = Field(False, help="_")
+    # efficient_ram_testing: bool = Field(False, help="_")
+    efficient_ram_testing: bool = Field(True, help="_")
     val_positive_dist_threshold: int = Field(25, help="_")
     train_positives_dist_threshold: int = Field(10, help="_")
     recall_values: List[int] = Field(
@@ -247,7 +257,13 @@ def parse_arguments()->VPRModel:
     args = VPRModel(**vars(args_parsed))
     return post_args_handle(args)
 
+from gpu_manager import GPUManager
 def post_args_handle(args: VPRModel)->VPRModel:
+    if args.device == "auto":
+        gm = GPUManager()
+        args.device = str(torch.device(gm.auto_choice())) #选个主device？
+        # os.environ['CUDA_VISIBLE_DEVICES'] = str(gm.auto_choice()) # 似乎对Parallel没用
+        # args.device = "cuda"
 
     if args.datasets_folder is None:
         try:
