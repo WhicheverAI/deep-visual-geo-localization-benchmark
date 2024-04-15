@@ -1,12 +1,15 @@
 #%%
 from pathlib import Path
 from typing import List
+import warnings
 this_file = Path(__file__).resolve()
 this_directory = this_file.parent
 #%%
 logs = this_directory / "logs"
 success_logs = logs / "success"
 default_logs = logs / "default"
+# success_logs = logs / "intermediate"
+# default_logs = logs / "intermediate"
 default_logs.mkdir(exist_ok=True, parents=True)
 success_logs.mkdir(exist_ok=True, parents=True)
 #%%
@@ -56,6 +59,7 @@ def text_to_experiment(text:str):
         pattern = r"R@\d+:\s*([\d.]+)"
         matches = re.findall(pattern, line)
         return [float(match) for match in matches]
+    # test_r_list = []
     for line in lines:
         if "Arguments: " in line:
             if met_args: raise TypeError()
@@ -92,7 +96,9 @@ def text_to_experiment(text:str):
             met_test = True
             test_r_list = get_r_list_from_line(line)
             
-            
+    if not met_test:
+        test_r_list = [0, 0, 0, 0] 
+        warnings.warn("Training Not Completed!")
     # return ExperimentModel(experiment_time=date_time_object, 
     return dict(experiment_time=date_time_object, 
                            val_recalls=best_val_r_list, 
@@ -107,6 +113,7 @@ not_interested = ["datasets_folder", "my_extra_fields",
                  ]+["val_recalls", "test_recalls"]
 experiments = []
 for subfolder in success_logs.iterdir():
+    if not subfolder.is_dir(): continue
     with open(subfolder/"debug.log", "r") as f:
         contents = f.read()
     experiment = text_to_experiment(contents)
@@ -115,7 +122,7 @@ for subfolder in success_logs.iterdir():
     for i, r in enumerate(experiment['recall_values']):
         exp_dict[f'val_R@{r}'] = experiment['val_recalls'][i]
     for i, r in enumerate(experiment['recall_values']):
-        exp_dict[f'R@{r}'] = experiment['val_recalls'][i]
+        exp_dict[f'R@{r}'] = experiment['test_recalls'][i]
     for ni in not_interested:
         if ni in exp_dict:
             del exp_dict[ni]
@@ -138,8 +145,12 @@ interested_columns = [col for col in df.columns if
                  col not in other_columns]
 df = df[interested_columns + other_columns]
 df
+
 #%%
 df.to_csv("logs/exp_summary.csv")
+#%%
+# 注意msls，验证集和测试集应该是一样的，0表示没跑完
+# 注意pitts30k，验证集应该和测试集不一样，0也是没跑完。
 #%%
 # 2/24 pit数据集处理好了
 # 2024-03-01 17:45:05 的效果不用算进来
