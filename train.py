@@ -20,6 +20,7 @@ from model import network
 from model.sync_batchnorm import convert_model
 from model.functional import sare_ind, sare_joint
 
+from bigmodelvis import Visualization
 
 #### Initial setup: parser, logging...
 
@@ -68,6 +69,7 @@ def main(args:parser.VPRModel):
         args.features_dim *= args.netvlad_clusters
 
     model = torch.nn.DataParallel(model)
+    Visualization(model).structure_graph()
 
     #### Setup Optimizer and Loss
     if args.aggregation == "crn":
