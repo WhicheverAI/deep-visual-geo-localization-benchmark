@@ -74,13 +74,16 @@ class VPRModel(ArgumentModel):
     # no_wandb: bool = Field(False, help="Disable wandb logging")
     no_wandb: bool = Field(True, help="Disable wandb logging")
     train_batch_size: int = Field(
-        2,
+        # 2,
         # 4,
+        8,
         # 16,
         help="Number of triplets (query, pos, negs) in a batch. Each triplet consists of 12 images",
     )
     infer_batch_size: int = Field(
-        16, help="Batch size for inference (caching and testing)"
+        8, 
+        # 16, 
+        help="Batch size for inference (caching and testing)"
     )
     criterion: str = Field(
         "triplet", help="Loss to be used", choices=["triplet", "sare_ind", "sare_joint"]
@@ -92,24 +95,25 @@ class VPRModel(ArgumentModel):
         0.00001,
         # 0.00001 * 4,
         help="_")
-    lr_crn_layer: float = Field(5e-3, help="Learning rate for the CRN layer")
+    lr_crn_layer: float = Field(5e-3, help="Learning rate for the CRN layer") # 是一种聚合方法
     lr_crn_net: float = Field(
         5e-4, help="Learning rate to finetune pretrained network when using CRN"
     )
     optim: str = Field("adam", help="_", choices=["adam", "sgd"])
     cache_refresh_rate: int = Field(
         1000, help="How often to refresh cache, in number of queries"
-    )
+    ) # 找pos直接用ground truth+最相似的，negs需要hard mining也是找最相似但是不同的。
+    # cache 0, 1, 2, 3, 4是不同的database feature。
     queries_per_epoch: int = Field(
         5000,
         help="How many queries to consider for one epoch. Must be multiple of cache_refresh_rate",
-    )
+    ) # batch是在遍历query，对每个query找到pos和negs去训练
     negs_num_per_query: int = Field(
         10, help="How many negatives to consider per each query in the loss"
-    )
+    ) # 每个query找多少个negs
     neg_samples_num: int = Field(
         1000, help="How many negatives to use to compute the hardest ones"
-    )
+    ) # partial方法中，从1000个随机的negs中找最难的10个
     mining: str = Field(
         "partial", choices=["partial", "full", "random", "msls_weighted"]
     )
@@ -129,6 +133,8 @@ class VPRModel(ArgumentModel):
             "vit",
         ],
         help="_",
+        # CCT 改的是输入embedding过程
+        # https://github.com/SHI-Labs/Compact-Transformers
     )
     l2: str = Field(
         "before_pool",
@@ -149,11 +155,13 @@ class VPRModel(ArgumentModel):
             "seqpool",
         ],
     )
+    # 类似于pooling层
+    # gem 是一个可学习范数p的 avg_pool2d, gem会对 (B, C, H, W)整个(H, W)平均为(1, 1)
     netvlad_clusters: int = Field(64, help="Number of clusters for NetVLAD layer.")
     pca_dim: int = Field(
         None,
         help="PCA dimension (number of principal components). If None, PCA is not used.",
-    )
+    ) # 特征升降维方便公平比较不同的聚合方法
     fc_output_dim: int = Field(
         None,
         help="Output dimension of fully connected layer. If None, don't use a fully connected layer.",
@@ -185,15 +193,23 @@ class VPRModel(ArgumentModel):
         # "adapter", 
         choices=list(peft.PeftType.__members__.keys()
                      )+list(auto_delta.LAZY_CONFIG_MAPPING.keys()
-                     )+["sela_vpr_adapter"]
+                     )+['ensemble', "sela_vpr_adapter", ]
         )
     seed: int = Field(0)
     resume: str = Field(
-        None, help="Path to load checkpoint from, for resuming training or testing."
+        # None, 
+        # 意外退出
+        # "/work/asc22/yecanming/researches/cv/VPR/deep-visual-geo-localization-benchmark/logs/default/2024-04-09_19-31-26/best_model.pth", 
+        # 训练超过8h
+        # "/work/asc22/yecanming/researches/cv/VPR/deep-visual-geo-localization-benchmark/logs/intermediate/2024-04-09_02-32-41/best_model.pth"
+        "/work/asc22/yecanming/researches/cv/VPR/deep-visual-geo-localization-benchmark/logs/intermediate/2024-04-09_02-44-12/best_model.pth"
+        # "/work/asc22/yecanming/researches/cv/VPR/deep-visual-geo-localization-benchmark/logs/intermediate/2024-04-09_02-03-07/best_model.pth"
+        ,help="Path to load checkpoint from, for resuming training or testing."
+        
     )
     device: str = Field(
-        # "cuda", 
-        'cuda:1',
+        "cuda", 
+        # 'cuda:1',
                         choices=["cuda", "cpu", "auto", 'cuda:0'])
     # device: str = Field("auto", choices=["cuda", "cpu", "auto"])
     num_workers: int = Field(8, help="num_workers for all dataloaders")
@@ -240,8 +256,9 @@ class VPRModel(ArgumentModel):
         help="Path with all datasets"
     )
     dataset_name: str = Field(
-        "pitts30k", 
+        # "pitts30k", 
         # "pitts250k", 
+        "mapillary_sls", 
         help="Relative path of the dataset")
     pca_dataset_folder: str = Field(
         None,
@@ -261,9 +278,22 @@ def parse_arguments()->VPRModel:
     args = VPRModel(**vars(args_parsed))
     return post_args_handle(args)
 
-from gpu_manager import GPUManager
+
 def post_args_handle(args: VPRModel)->VPRModel:
+    num_gpus = torch.cuda.device_count()
+    for i in range(num_gpus):
+        device = torch.device(f"cuda:{i}")
+        properties = torch.cuda.get_device_properties(device)
+        print(f"GPU {i} 的详细信息：")
+        print("名称：", properties.name)
+        print("显存大小：", properties.total_memory)
+    # args.train_batch_size = 20
+    batch_size = args.train_batch_size/1*num_gpus*properties.total_memory/1024/1024/1024/80
+    args.train_batch_size = int(batch_size)
+    args.infer_batch_size = int(batch_size)
+    
     if args.device == "auto":
+        from gpu_manager import GPUManager
         gm = GPUManager()
         args.device = str(torch.device(gm.auto_choice())) #选个主device？
         # os.environ['CUDA_VISIBLE_DEVICES'] = str(gm.auto_choice()) # 似乎对Parallel没用

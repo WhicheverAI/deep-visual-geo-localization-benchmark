@@ -9,7 +9,9 @@ logs = this_directory / "logs"
 # success_logs = logs / "success"
 # default_logs = logs / "default"
 success_logs = logs / "success"
-default_logs = logs / "success"
+default_logs = logs / "default"
+# success_logs = logs / "intermediate"
+# default_logs = logs / "intermediate"
 default_logs.mkdir(exist_ok=True, parents=True)
 success_logs.mkdir(exist_ok=True, parents=True)
 #%%

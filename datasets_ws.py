@@ -253,11 +253,17 @@ class TripletsDataset(BaseDataset):
     def compute_cache(args:VPRModel, model, subset_ds, cache_shape):
         """Compute the cache containing features of images, which is used to
         find best positive and hardest negatives."""
+        import psutil
+        vm = psutil.virtual_memory()
+        GB = 1024 ** 3
+        cache_size = cache_shape[0] * cache_shape[1] * 4  # 4 bytes per float32
+        pin_memory = cache_size < 0.8 * vm.available
+        print(f"Available: {vm.available / GB:.2f} GB; Cache size: {cache_size / GB:.2f} GB; Whether pin_memory? {pin_memory}.")
         subset_dl = DataLoader(dataset=subset_ds, num_workers=args.num_workers,
                                batch_size=args.infer_batch_size, shuffle=False,
-                            #    pin_memory= "cuda" in args.device
-                               pin_memory = False
-                            #    (args.device == "cuda")
+                            #    pin_memory=(args.device == "cuda")
+                            #    pin_memory=False 
+                               pin_memory=pin_memory
                                )
         model = model.eval()
         

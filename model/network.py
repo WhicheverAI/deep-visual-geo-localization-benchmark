@@ -22,8 +22,11 @@ import opendelta
 from opendelta import AutoDeltaConfig, AutoDeltaModel
 from opendelta import auto_delta
 
+from delta_residual.utils import set_requires_grad
+
 import wandb
 from parser import VPRModel
+from delta_residual.utils import set_requires_grad
 
 # Pretrained models on Google Landmarks v2 and Places 365
 PRETRAINED_MODELS = {
@@ -273,7 +276,8 @@ def get_backbone(args:VPRModel):
                         init_r=24
                     )
                 elif peft_type is peft.PeftType.OFT:
-                    config_dict = dict()
+                    # config_dict = dict()
+                    config_dict = peft.OFTConfig()
                 elif peft_type is peft.PeftType.GLORA:
                     config_dict = peft.GLoraConfig(r=16)   
                 else:
@@ -294,35 +298,33 @@ def get_backbone(args:VPRModel):
                 backbone.print_trainable_parameters()
             elif args.peft in auto_delta.LAZY_CONFIG_MAPPING:
                 if args.peft == "adapter":
-                    # from opendelta import AdapterModel
-                    # delta_model = AdapterModel(backbone, 
-                    #     bottleneck_dim=24, 
-                    #     non_linearity='gelu_new',
-                    #     #   common_structure=False,
-                    #     #   common_structure=True,
-                    #     modified_modules=[
-                    #         # "attention.output.dense",
-                    #                     #   "mlp.fc2"
-                    #         # "dense", "fc2"
-                    #         '[r][\d+]\.attention', "mlp"
-                    #                       ], 
-                    #     # interactive_modify=True
-                    #       )
-                    # delta_model.freeze_module(exclude=["deltas", "aggregation"])
-                    # delta_model = delta_model.to(args.device)
+                    from opendelta import AdapterModel
+                    delta_model = AdapterModel(backbone, 
+                        bottleneck_dim=24, 
+                        non_linearity='gelu_new',
+                        #   common_structure=False,
+                        #   common_structure=True,
+                        modified_modules=[
+                            # "attention.output.dense",
+                                        #   "mlp.fc2"
+                            # "dense", "fc2"
+                            '[r][\d+]\.attention', "mlp"
+                                          ], 
+                        # interactive_modify=True
+                          )
+                    delta_model.freeze_module(exclude=["deltas", "aggregation"])
+                    delta_model(torch.randn(1, 3, 224, 224)) # 这样才能初始化
+                    delta_model = delta_model.to(args.device)
                     # delta_model.log() # 这里还没初始化
-
-                    # import adapters
-                    # adapters.init(backbone)
-                    # backbone.add_adapter("my_adapter", 
-                    #                      # bottleneck adapter
-                    #                      config=adapters.BnConfig(
-                    #                          mh_adapter=True, 
-                    #                             output_adapter=True,
-                    #                      )
-                    #                      )
-                    # backbone.train_adapter("my_adapter")
-                    pass
+            elif args.peft == "ensemble":
+                delta = AutoModel.from_pretrained('facebook/dinov2-small')
+                delta = VitWrapper(delta, args.aggregation).to(args.device)
+                delta = nn.Sequential(delta, nn.Linear(384, 768, bias=True))
+                set_requires_grad(delta, True)
+                set_requires_grad(backbone, False)
+                backbone = Ensemble([backbone, delta])
+                    
+                                        
                     
         
         args.features_dim = 768
@@ -332,8 +334,15 @@ def get_backbone(args:VPRModel):
     args.features_dim = get_output_channels_dim(backbone)  # Dinamically obtain number of channels in output
     return backbone
 
+class Ensemble(nn.Module):
+    def __init__(self, models, weights=None):
 
-# 这是huggingface版本的
+        super().__init__()
+        self.models = nn.ModuleList(models)
+        self.weights = weights or [1/len(models)] * len(models)
+    def forward(self, x):
+        return torch.sum(torch.stack([model(x) for model in self.models]), dim=0)
+    
 class VitWrapper(nn.Module):
     def __init__(self, vit_model, aggregation):
         super().__init__()
