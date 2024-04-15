@@ -16,3 +16,9 @@ einops
 
 # 复现记录
 # conda用的是cv
+
+wandb
+ipykernel
+bigmodelvis
+
+psutil
