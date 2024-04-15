@@ -179,12 +179,52 @@ def get_backbone(args:VPRModel):
     elif args.backbone.startswith("vit"):
         assert args.resize[0] in [224, 384], f'Image size for ViT must be either 224 or 384, but it\'s {args.resize[0]}'
         
+        
+            
+        
         if args.pretrain == 'dinov2':
-            # backbone = ViTModel.from_pretrained('nateraw/dino_vits8')
-            # backbone = ViTModel.from_pretrained('timm/vit_base_patch14_dinov2.lvd142m')
-            backbone = AutoModel.from_pretrained('facebook/dinov2-base') # 似乎不对？
-            # path = Path('../../../pretrains/facebook/dinov2-base').resolve()
-            # backbone = AutoModel.from_pretrained(path.as_posix(), local_files_only=True)
+            # 特殊判断 adapter，使用 selavpr 
+            if args.peft == 'sela_vpr_adapter':
+                # cricavpr
+                if os.path.exists('backbone'):
+                    os.remove('backbone')
+                # os.symlink('../CricaVPR/backbone', 'backbone')
+                os.symlink('../SelaVPR/backbone', 'backbone')
+                # 不用sys.path.append, 那样的话其他文件名字比较像，会乱。
+                from backbone.vision_transformer import vit_small, vit_base, vit_large, vit_giant2
+                backbone = vit_base(patch_size=14,img_size=518,init_values=1,block_chunks=0)  
+                foundation_model_path = "backbone/dinov2_vitb14_pretrain.pth"
+                assert foundation_model_path is not None, "Please specify foundation model path."
+                model_dict = backbone.state_dict()
+                state_dict = torch.load(foundation_model_path)
+                model_dict.update(state_dict.items())
+                backbone.load_state_dict(model_dict)
+                ## Freeze parameters except adapter
+                for name, param in backbone.named_parameters():
+                    if "adapter" not in name:
+                        param.requires_grad = False
+
+                ## initialize Adapter
+                for n, m in backbone.named_modules():
+                    if 'adapter' in n:
+                        for n2, m2 in m.named_modules():
+                            if 'D_fc2' in n2:
+                                if isinstance(m2, nn.Linear):
+                                    nn.init.constant_(m2.weight, 0.)
+                                    nn.init.constant_(m2.bias, 0.)
+                        for n2, m2 in m.named_modules():
+                            if 'conv' in n2:
+                                if isinstance(m2, nn.Conv2d):
+                                    nn.init.constant_(m2.weight, 0.00001)
+                                    nn.init.constant_(m2.bias, 0.00001)
+                args.features_dim = 768
+                return FacebookVitWrapper(backbone, args.aggregation).to(args.device)
+            else:
+                # backbone = ViTModel.from_pretrained('nateraw/dino_vits8')
+                # backbone = ViTModel.from_pretrained('timm/vit_base_patch14_dinov2.lvd142m')
+                backbone = AutoModel.from_pretrained('facebook/dinov2-base') # 似乎不对？
+                # path = Path('../../../pretrains/facebook/dinov2-base').resolve()
+                # backbone = AutoModel.from_pretrained(path.as_posix(), local_files_only=True)
         else:
             if args.resize[0] == 224:
                 # backbone = ViTModel.from_pretrained('../../../pretrains/google/vit-base-patch16-224-in21k')
@@ -254,24 +294,35 @@ def get_backbone(args:VPRModel):
                 backbone.print_trainable_parameters()
             elif args.peft in auto_delta.LAZY_CONFIG_MAPPING:
                 if args.peft == "adapter":
-                    from opendelta import AdapterModel
-                    delta_model = AdapterModel(backbone, 
-                        bottleneck_dim=24, 
-                        non_linearity='gelu_new',
-                        #   common_structure=False,
-                        #   common_structure=True,
-                        modified_modules=[
-                            # "attention.output.dense",
-                                        #   "mlp.fc2"
-                            # "dense", "fc2"
-                            '[r][\d+]\.attention', "mlp"
-                                          ], 
-                        # interactive_modify=True
-                          )
-                    delta_model.freeze_module(exclude=["deltas", "aggregation"])
-                    delta_model = delta_model.to(args.device)
+                    # from opendelta import AdapterModel
+                    # delta_model = AdapterModel(backbone, 
+                    #     bottleneck_dim=24, 
+                    #     non_linearity='gelu_new',
+                    #     #   common_structure=False,
+                    #     #   common_structure=True,
+                    #     modified_modules=[
+                    #         # "attention.output.dense",
+                    #                     #   "mlp.fc2"
+                    #         # "dense", "fc2"
+                    #         '[r][\d+]\.attention', "mlp"
+                    #                       ], 
+                    #     # interactive_modify=True
+                    #       )
+                    # delta_model.freeze_module(exclude=["deltas", "aggregation"])
+                    # delta_model = delta_model.to(args.device)
                     # delta_model.log() # 这里还没初始化
-                    
+
+                    # import adapters
+                    # adapters.init(backbone)
+                    # backbone.add_adapter("my_adapter", 
+                    #                      # bottleneck adapter
+                    #                      config=adapters.BnConfig(
+                    #                          mh_adapter=True, 
+                    #                             output_adapter=True,
+                    #                      )
+                    #                      )
+                    # backbone.train_adapter("my_adapter")
+                    pass
                     
         
         args.features_dim = 768
@@ -282,13 +333,16 @@ def get_backbone(args:VPRModel):
     return backbone
 
 
+# 这是huggingface版本的
 class VitWrapper(nn.Module):
     def __init__(self, vit_model, aggregation):
         super().__init__()
         self.vit_model = vit_model
         self.aggregation = aggregation
-        self.config = vit_model.config # hf风格
-        self.dummy_inputs = vit_model.dummy_inputs
+        if 'config' in dir(vit_model):
+            self.config = vit_model.config # hf风格
+        if 'dummy_inputs' in dir(vit_model):
+            self.dummy_inputs = vit_model.dummy_inputs
         # .to('cuda')
         # b, c, h, w = 1, 3, 224, 224
         # self.dummy_inputs = torch.randn(b, c, h, w)
@@ -297,6 +351,18 @@ class VitWrapper(nn.Module):
             res = self.vit_model(x).last_hidden_state[:, 1:, :]
         else:
             res = self.vit_model(x).last_hidden_state[:, 0, :]
+        return res
+    
+class FacebookVitWrapper(nn.Module):
+    def __init__(self, vit_model, aggregation):
+        super().__init__()
+        self.vit_model = vit_model
+        self.aggregation = aggregation
+    def forward(self, x):
+        if self.aggregation in ["netvlad", "gem"]:
+            res = self.vit_model(x)['x_norm_patchtokens']
+        else:
+            res = self.vit_model(x)['x_norm_clstoken']
         return res
     
 

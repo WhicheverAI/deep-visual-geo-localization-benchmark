@@ -71,10 +71,11 @@ class ArgumentModel(BaseSettings):
         case_sensitive = False # 环境变量可以大写也可以小写
 
 class VPRModel(ArgumentModel):
-    no_wandb: bool = Field(False, help="Disable wandb logging")
-    # no_wandb: bool = Field(True, help="Disable wandb logging")
+    # no_wandb: bool = Field(False, help="Disable wandb logging")
+    no_wandb: bool = Field(True, help="Disable wandb logging")
     train_batch_size: int = Field(
-        4,
+        2,
+        # 4,
         # 16,
         help="Number of triplets (query, pos, negs) in a batch. Each triplet consists of 12 images",
     )
@@ -174,23 +175,26 @@ class VPRModel(ArgumentModel):
     # peft: str = Field(None, choices=['lora'])
     # peft: Optional[str] = Field(
     peft: str = Field(
-        # None,
+        None,
         # peft.PeftType.LORA.name,
         # peft.PeftType.GLORA.name,
         # peft.PeftType.OFT.name,
         # peft.PeftType.ADALORA.name,
         # peft.PeftType.IA3.name,
         # peft.PeftType.PREFIX_TUNING.name,
-        "adapter", 
+        # "adapter", 
         choices=list(peft.PeftType.__members__.keys()
                      )+list(auto_delta.LAZY_CONFIG_MAPPING.keys()
-                     )+[]
+                     )+["sela_vpr_adapter"]
         )
     seed: int = Field(0)
     resume: str = Field(
         None, help="Path to load checkpoint from, for resuming training or testing."
     )
-    device: str = Field("cuda", choices=["cuda", "cpu", "auto"])
+    device: str = Field(
+        # "cuda", 
+        'cuda:1',
+                        choices=["cuda", "cpu", "auto", 'cuda:0'])
     # device: str = Field("auto", choices=["cuda", "cpu", "auto"])
     num_workers: int = Field(8, help="num_workers for all dataloaders")
     resize: List[int] = Field(
