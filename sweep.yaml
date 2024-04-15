@@ -1,0 +1,167 @@
+program: sweep.py
+name: sweep_VPRModel
+method: grid
+metric:
+  name: test_R@1
+  goal: maximize
+  target: 100
+parameters:
+  no_wandb:
+    distribution: constant
+    value: false
+  train_batch_size:
+    distribution: constant
+    value: 4
+  infer_batch_size:
+    distribution: constant
+    value: 16
+  criterion:
+    distribution: constant
+    value: triplet
+  margin:
+    distribution: constant
+    value: 0.1
+  epochs_num:
+    distribution: constant
+    value: 1000
+  patience:
+    distribution: constant
+    value: 3
+  lr:
+    distribution: constant
+    value: 1.0e-05
+  lr_crn_layer:
+    distribution: constant
+    value: 0.005
+  lr_crn_net:
+    distribution: constant
+    value: 0.0005
+  optim:
+    distribution: constant
+    value: adam
+  cache_refresh_rate:
+    distribution: constant
+    value: 1000
+  queries_per_epoch:
+    distribution: constant
+    value: 5000
+  negs_num_per_query:
+    distribution: constant
+    value: 10
+  neg_samples_num:
+    distribution: constant
+    value: 1000
+  mining:
+    distribution: constant
+    value: partial
+  backbone:
+    distribution: constant
+    value: vit
+  l2:
+    distribution: constant
+    value: before_pool
+  aggregation:
+    distribution: constant
+    value: netvlad
+  netvlad_clusters:
+    distribution: constant
+    value: 64
+  pca_dim:
+    distribution: constant
+    value: null
+  fc_output_dim:
+    distribution: constant
+    value: null
+  pretrain:
+    distribution: constant
+    value: dinov2
+  off_the_shelf:
+    distribution: constant
+    value: imagenet
+  trunc_te:
+    distribution: constant
+    value: null
+  freeze_te:
+    distribution: constant
+    value: null
+  peft:
+    distribution: constant
+    value: GLORA
+  seed:
+    distribution: constant
+    value: 0
+  resume:
+    distribution: constant
+    value: null
+  device:
+    distribution: constant
+    value: cuda
+  num_workers:
+    distribution: constant
+    value: 8
+  resize:
+    distribution: constant
+    value:
+    - 224
+    - 224
+  test_method:
+    distribution: constant
+    value: hard_resize
+  majority_weight:
+    distribution: constant
+    value: 0.01
+  efficient_ram_testing:
+    distribution: constant
+    value: false
+  val_positive_dist_threshold:
+    distribution: constant
+    value: 25
+  train_positives_dist_threshold:
+    distribution: constant
+    value: 10
+  recall_values:
+    distribution: constant
+    value:
+    - 1
+    - 5
+    - 10
+    - 20
+  brightness:
+    distribution: constant
+    value: 0
+  contrast:
+    distribution: constant
+    value: 0
+  saturation:
+    distribution: constant
+    value: 0
+  hue:
+    distribution: constant
+    value: 0
+  rand_perspective:
+    distribution: constant
+    value: 0
+  horizontal_flip:
+    distribution: constant
+    value: false
+  random_resized_crop:
+    distribution: constant
+    value: 0
+  random_rotation:
+    distribution: constant
+    value: 0
+  datasets_folder:
+    distribution: constant
+    value: /home/yecm/yecanming/repo/cv/vpr/VPR-datasets-downloader/datasets
+  dataset_name:
+    distribution: constant
+    value: pitts30k
+  pca_dataset_folder:
+    distribution: constant
+    value: null
+  save_dir:
+    distribution: constant
+    value: default
+  addition_experiment_notes:
+    distribution: constant
+    value: big lora, rank 32.
