@@ -71,15 +71,19 @@ class ArgumentModel(BaseSettings):
         case_sensitive = False # 环境变量可以大写也可以小写
 
 class VPRModel(ArgumentModel):
-    no_wandb: bool = Field(False, help="Disable wandb logging")
-    # no_wandb: bool = Field(True, help="Disable wandb logging")
+    # no_wandb: bool = Field(False, help="Disable wandb logging")
+    no_wandb: bool = Field(True, help="Disable wandb logging")
     train_batch_size: int = Field(
-        4,
+        # 2,
+        # 4,
+        8,
         # 16,
         help="Number of triplets (query, pos, negs) in a batch. Each triplet consists of 12 images",
     )
     infer_batch_size: int = Field(
-        16, help="Batch size for inference (caching and testing)"
+        8, 
+        # 16, 
+        help="Batch size for inference (caching and testing)"
     )
     criterion: str = Field(
         "triplet", help="Loss to be used", choices=["triplet", "sare_ind", "sare_joint"]
@@ -181,10 +185,11 @@ class VPRModel(ArgumentModel):
         # peft.PeftType.ADALORA.name,
         # peft.PeftType.IA3.name,
         # peft.PeftType.PREFIX_TUNING.name,
-        "adapter", 
+        # "adapter", 
+        "ensemble", 
         choices=list(peft.PeftType.__members__.keys()
                      )+list(auto_delta.LAZY_CONFIG_MAPPING.keys()
-                     )+[]
+                     )+['ensemble']
         )
     seed: int = Field(0)
     resume: str = Field(

@@ -24,6 +24,7 @@ from opendelta import auto_delta
 
 import wandb
 from parser import VPRModel
+from delta_residual.utils import set_requires_grad
 
 # Pretrained models on Google Landmarks v2 and Places 365
 PRETRAINED_MODELS = {
@@ -271,9 +272,17 @@ def get_backbone(args:VPRModel):
                     delta_model.freeze_module(exclude=["deltas", "aggregation"])
                     delta_model = delta_model.to(args.device)
                     # delta_model.log() # 这里还没初始化
+            elif args.peft == "ensemble":
+                delta = AutoModel.from_pretrained('facebook/dinov2-small')
+                delta = VitWrapper(delta, args.aggregation).to(args.device)
+                delta = nn.Sequential(delta, nn.Linear(384, 768, bias=True))
+                set_requires_grad(delta, True)
+                set_requires_grad(backbone, False)
+                backbone = Ensemble([backbone, delta])
                     
                     
-        
+                # backbone = torch.nn.DataParallel(backbone)
+
         args.features_dim = 768
         return backbone
 
@@ -281,6 +290,14 @@ def get_backbone(args:VPRModel):
     args.features_dim = get_output_channels_dim(backbone)  # Dinamically obtain number of channels in output
     return backbone
 
+class Ensemble(nn.Module):
+    def __init__(self, models, weights=None):
+
+        super().__init__()
+        self.models = nn.ModuleList(models)
+        self.weights = weights or [1/len(models)] * len(models)
+    def forward(self, x):
+        return torch.sum(torch.stack([model(x) for model in self.models]), dim=0)
 
 class VitWrapper(nn.Module):
     def __init__(self, vit_model, aggregation):
