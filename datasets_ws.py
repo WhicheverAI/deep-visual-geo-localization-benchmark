@@ -255,7 +255,10 @@ class TripletsDataset(BaseDataset):
         find best positive and hardest negatives."""
         subset_dl = DataLoader(dataset=subset_ds, num_workers=args.num_workers,
                                batch_size=args.infer_batch_size, shuffle=False,
-                               pin_memory=(args.device == "cuda"))
+                            #    pin_memory= "cuda" in args.device
+                               pin_memory = False
+                            #    (args.device == "cuda")
+                               )
         model = model.eval()
         
         # RAMEfficient2DMatrix can be replaced by np.zeros, but using
