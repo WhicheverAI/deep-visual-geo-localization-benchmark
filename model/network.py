@@ -26,6 +26,7 @@ from delta_residual.utils import set_requires_grad
 
 import wandb
 from parser import VPRModel
+from delta_residual.utils import set_requires_grad
 
 # Pretrained models on Google Landmarks v2 and Places 365
 PRETRAINED_MODELS = {

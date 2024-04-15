@@ -74,12 +74,16 @@ class VPRModel(ArgumentModel):
     # no_wandb: bool = Field(False, help="Disable wandb logging")
     no_wandb: bool = Field(True, help="Disable wandb logging")
     train_batch_size: int = Field(
-        4,
+        # 2,
+        # 4,
+        8,
         # 16,
         help="Number of triplets (query, pos, negs) in a batch. Each triplet consists of 12 images",
     )
     infer_batch_size: int = Field(
-        16, help="Batch size for inference (caching and testing)"
+        8, 
+        # 16, 
+        help="Batch size for inference (caching and testing)"
     )
     criterion: str = Field(
         "triplet", help="Loss to be used", choices=["triplet", "sare_ind", "sare_joint"]
