@@ -108,9 +108,13 @@ class NetVLAD(nn.Module):
         # else:
             # self.conv = nn.Conv2d(dim, clusters_num, kernel_size=(1, 1), bias=False)
         self.conv = nn.Conv2d(dim, clusters_num, kernel_size=(1, 1), bias=False)
+        # 这就是NIN，实现soft assign，表示每一个位置它的特征是哪个cluster的。
+        
         self.centroids = nn.Parameter(torch.rand(clusters_num, dim))
+        # 这个是要学习的字典表，表示每一个cluster的中心是什么。
 
     def init_params(self, centroids, descriptors):
+        # 通过一系列的特征示例来初始化字典表以及归类CNN
         centroids_assign = centroids / np.linalg.norm(centroids, axis=1, keepdims=True)
         dots = np.dot(centroids_assign, descriptors.T)
         dots.sort(0)

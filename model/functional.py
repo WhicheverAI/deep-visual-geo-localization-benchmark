@@ -39,6 +39,7 @@ def gem(x, p=3, eps=1e-6, work_with_tokens=False):
     #     return F.avg_pool1d(x.clamp(min=eps).pow(p), (x.size(-1))).pow(1./p).unsqueeze(3)
     # else:
         # return F.avg_pool2d(x.clamp(min=eps).pow(p), (x.size(-2), x.size(-1))).pow(1./p)
+    # x.shape = (batch_size, channels, H, W)
     return F.avg_pool2d(x.clamp(min=eps).pow(p), (x.size(-2), x.size(-1))).pow(1./p)
 
 def rmac(x, L=3, eps=1e-6):

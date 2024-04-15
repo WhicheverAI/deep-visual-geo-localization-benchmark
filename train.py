@@ -130,6 +130,7 @@ def main(args:parser.VPRModel):
             logging.debug(f"Cache: {loop_num} / {loops_num}")
             
             # Compute triplets to use in the triplet loss
+            # 这里准备好了1000个 query和pos、neg的对应关系，
             triplets_ds.is_inference = True
             triplets_ds.compute_triplets(args, model)
             triplets_ds.is_inference = False
