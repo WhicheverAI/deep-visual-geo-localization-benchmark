@@ -30,7 +30,10 @@ def main(args:parser.VPRModel):
     args.save_dir = join("logs", args.save_dir, start_time.strftime('%Y-%m-%d_%H-%M-%S'))
     commons.setup_logging(args.save_dir)
     commons.make_deterministic(args.seed)
-    logging.info(f"Arguments: {args}")
+    args_str = args.model_dump_json(indent=4)
+    logging.info(f"Arguments: {args_str}")
+    with open(join(args.save_dir, "config.json"), "w") as f:
+        f.write(args_str)
     logging.info(f"The outputs are being saved in {args.save_dir}")
     logging.info(f"Using {torch.cuda.device_count()} GPUs and {multiprocessing.cpu_count()} CPUs")
 
