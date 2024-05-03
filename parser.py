@@ -1,13 +1,17 @@
 import os
 import torch
 import argparse
-from pydantic import BaseModel, Field, BaseSettings
+from pydantic import BaseModel, Field
+# , BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 import argparse
 from typing import List, Optional
 
 from pathlib import Path
 this_file = Path(__file__).resolve()
 this_directory = this_file.parent
+#%%
+
 #%%
 import peft
 from opendelta import auto_delta
@@ -22,6 +26,21 @@ def get_env_or_default(env_var_key:str, default:str, type=str)->str:
 
 #%%
 # class ArgumentModel(BaseModel):
+from typing import Union, get_args, Optional
+
+def remove_none_hint(original_type):
+    # 获取Union类型中的所有类型参数
+    args = get_args(original_type)
+    
+    # 移除None类型，如果它存在的话
+    args = [arg for arg in args if arg is not type(None)]
+    
+    # 如果结果中只有一个类型，就直接返回这个类型
+    if len(args) == 1:
+        return args[0]
+    
+    # 如果结果中有多个类型，或者没有类型（即原类型为NoneType），则返回原类型
+    return original_type
 class ArgumentModel(BaseSettings):
     """
     1. 代码中写了默认值
@@ -44,9 +63,10 @@ class ArgumentModel(BaseSettings):
                 for key, value in field_info.items()
                 if key in ["default", "help", "choices"]
             }
+            parser_type = remove_none_hint(pydantic_type)
             parser.add_argument(
                 f"--{name}",
-                type=pydantic_type,
+                type=parser_type,
                 # default=getattr(self, name),
                 # default=field_info['default'],
                 # help=field_info['help']
@@ -143,6 +163,7 @@ class VPRModel(ArgumentModel):
     )
     aggregation: str = Field(
         "netvlad",
+        # "gem",
         choices=[
             "netvlad",
             "gem",
@@ -158,11 +179,11 @@ class VPRModel(ArgumentModel):
     # 类似于pooling层
     # gem 是一个可学习范数p的 avg_pool2d, gem会对 (B, C, H, W)整个(H, W)平均为(1, 1)
     netvlad_clusters: int = Field(64, help="Number of clusters for NetVLAD layer.")
-    pca_dim: int = Field(
+    pca_dim: int|None = Field(
         None,
         help="PCA dimension (number of principal components). If None, PCA is not used.",
     ) # 特征升降维方便公平比较不同的聚合方法
-    fc_output_dim: int = Field(
+    fc_output_dim: int|None = Field(
         None,
         help="Output dimension of fully connected layer. If None, don't use a fully connected layer.",
     )
@@ -177,12 +198,12 @@ class VPRModel(ArgumentModel):
         choices=["imagenet", "radenovic_sfm", "radenovic_gldv1", "naver"],
         help="Off-the-shelf networks from popular GitHub repos. Only with ResNet-50/101 + GeM + FC 2048",
     )
-    trunc_te: int = Field(None, choices=list(range(0, 14)))
-    freeze_te: int = Field(None, choices=list(range(-1, 14))) #TODO 我改了这个参数的意义，需要改下这个范围
+    trunc_te: int|None = Field(None, choices=list(range(0, 14)))
+    freeze_te: int|None = Field(None, choices=list(range(-1, 14))) #TODO 我改了这个参数的意义，需要改下这个范围
     # freeze_te: int = Field(8, choices=list(range(-1, 14)))
     # peft: str = Field(None, choices=['lora'])
     # peft: Optional[str] = Field(
-    peft: str = Field(
+    peft: str|None = Field(
         None,
         # peft.PeftType.LORA.name,
         # peft.PeftType.GLORA.name,
@@ -191,19 +212,25 @@ class VPRModel(ArgumentModel):
         # peft.PeftType.IA3.name,
         # peft.PeftType.PREFIX_TUNING.name,
         # "adapter", 
+        # "prefix", 
+        # "ensemble", 
         choices=list(peft.PeftType.__members__.keys()
                      )+list(auto_delta.LAZY_CONFIG_MAPPING.keys()
                      )+['ensemble', "sela_vpr_adapter", ]
         )
     seed: int = Field(0)
     resume: str = Field(
-        # None, 
+        # None
         # 意外退出
-        # "/work/asc22/yecanming/researches/cv/VPR/deep-visual-geo-localization-benchmark/logs/default/2024-04-09_19-31-26/best_model.pth", 
+        # "logs/default/2024-04-09_19-31-26/best_model.pth", 
+        # "logs/success/2024-04-09_20-08-56/best_model.pth" # adapter 
         # 训练超过8h
-        # "/work/asc22/yecanming/researches/cv/VPR/deep-visual-geo-localization-benchmark/logs/intermediate/2024-04-09_02-32-41/best_model.pth"
-        "/work/asc22/yecanming/researches/cv/VPR/deep-visual-geo-localization-benchmark/logs/intermediate/2024-04-09_02-44-12/best_model.pth"
-        # "/work/asc22/yecanming/researches/cv/VPR/deep-visual-geo-localization-benchmark/logs/intermediate/2024-04-09_02-03-07/best_model.pth"
+        # "logs/opendelta_new_prefix/2024-04-22_01-04-54/best_model.pth" # prefix
+        # "logs/intermediate/2024-04-09_02-32-41/best_model.pth"
+        # "logs/intermediate/2024-04-09_02-44-12/best_model.pth"
+        # "logs/intermediate/2024-04-09_02-03-07/best_model.pth"
+        # 完成，用于评测
+        "logs/intermediate/2024-04-09_04-47-52/best_model.pth"
         ,help="Path to load checkpoint from, for resuming training or testing."
         
     )
@@ -256,16 +283,17 @@ class VPRModel(ArgumentModel):
         help="Path with all datasets"
     )
     dataset_name: str = Field(
-        # "pitts30k", 
+        "pitts30k", 
         # "pitts250k", 
-        "mapillary_sls", 
+        # "mapillary_sls", 
         help="Relative path of the dataset")
-    pca_dataset_folder: str = Field(
+    pca_dataset_folder: str|None = Field(
         None,
         help="Path with images to be used to compute PCA (ie: pitts30k/images/train",
     )
     save_dir: str = Field(
-        "default", 
+        # "default", 
+        "opendelta_new_prefix", 
         help="Folder name of the current run (saved in ./logs/)"
     )
     # addition_experiment_notes:str = Field("big lora, rank 32.")
@@ -281,16 +309,20 @@ def parse_arguments()->VPRModel:
 
 def post_args_handle(args: VPRModel)->VPRModel:
     num_gpus = torch.cuda.device_count()
+    average_memory = 0
     for i in range(num_gpus):
         device = torch.device(f"cuda:{i}")
         properties = torch.cuda.get_device_properties(device)
         print(f"GPU {i} 的详细信息：")
         print("名称：", properties.name)
         print("显存大小：", properties.total_memory)
+        lamb = 1/(i+1)
+        average_memory = (1-lamb)*average_memory+lamb*properties.total_memory
     # args.train_batch_size = 20
-    batch_size = args.train_batch_size/1*num_gpus*properties.total_memory/1024/1024/1024/80
+    batch_size = args.train_batch_size/1*num_gpus*average_memory/1024/1024/1024/80
     args.train_batch_size = int(batch_size)
     args.infer_batch_size = int(batch_size)
+    print(f"根据显存, 自动智能决定batch_size为: {args.train_batch_size}")
     
     if args.device == "auto":
         from gpu_manager import GPUManager
