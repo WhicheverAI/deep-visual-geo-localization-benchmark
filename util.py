@@ -23,7 +23,16 @@ def get_flops(model, input_shape=(480, 640)):
     return 0
 
 
+first_save_checkpoint = True
 def save_checkpoint(args:VPRModel, state, is_best, filename):
+    if first_save_checkpoint:
+        first_save_checkpoint = False
+        if args.resume is not None:
+            # ensure that we have "best_model.pth" in the resumed session
+            # 不能写在 resume_model 函数里面，因为那里的args.save_dir不正确
+            shutil.copyfile(args.resume, join(args.save_dir, "best_model.pth"))
+            shutil.copyfile(args.resume, join(args.save_dir, "last_model.pth"))
+            print(f"Copied best_model.pth and last_model.pth from resume model {args.resume}.")
     model_path = join(args.save_dir, filename)
     torch.save(state, model_path)
     if is_best:
@@ -40,6 +49,7 @@ def resume_model(args:VPRModel, model):
         state_dict = checkpoint
     # if the model contains the prefix "module" which is appendend by
     # DataParallel, remove it to avoid errors when loading dict
+    # print(list(state_dict.keys())) # debug why the structure may be broken. 
     if list(state_dict.keys())[0].startswith('module'):
         state_dict = OrderedDict({k.replace('module.', ''): v for (k, v) in state_dict.items()})
     model.load_state_dict(state_dict)
