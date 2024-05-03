@@ -25,6 +25,7 @@ def get_flops(model, input_shape=(480, 640)):
 
 first_save_checkpoint = True
 def save_checkpoint(args:VPRModel, state, is_best, filename):
+    global first_save_checkpoint
     if first_save_checkpoint:
         first_save_checkpoint = False
         if args.resume is not None:
