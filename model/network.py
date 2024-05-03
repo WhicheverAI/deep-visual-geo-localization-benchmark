@@ -253,16 +253,18 @@ def get_backbone(args:VPRModel):
         backbone = VitWrapper(backbone, args.aggregation) # 这里有个问题哦，是不是不小心把NetVLAD给冻结了
         backbone = backbone.to(args.device) # 后面opendelta要参考这个模型的device去初始化参数
         if args.peft:
+            peft_config_dict = dict()
+            from opendelta.utils.inspect import num_total_parameters, num_trainable_parameters
+            w = num_total_parameters(backbone)
             logging.info(f"Using PEFT method {args.peft} for fine-tuning. ")
             if args.peft in peft.PeftType.__members__:
                 logging.debug("Using Huggingface Approach to implement peft.")
                 peft_type = peft.PeftType(args.peft)
                 # peft_config_cls = peft.PEFT_TYPE_TO_CONFIG_MAPPING[peft_type]
                 # peft_config = peft_config_cls()
-                config_dict = dict()
                 if peft_type is peft.PeftType.LORA:
                 # or peft_type is peft.PeftType.ADALORA:
-                    config_dict = peft.LoraConfig(
+                    peft_config_dict = peft.LoraConfig(
                             r=16,  # Lora矩阵的中间维度。=r 越小，可训练的参数越少，压缩程度越高
                             # r=32,  # 经过实验还是16好
                             lora_alpha=16,  #  LoRA 矩阵的稀疏性=非零元素的比例。lora_alpha 越小，可训练的参数越少，稀疏程度越高.
@@ -271,61 +273,66 @@ def get_backbone(args:VPRModel):
                             bias="none",  # bias是否冻结
                         )
                 elif peft_type is peft.PeftType.ADALORA:
-                    config_dict = peft.AdaLoraConfig(
+                    peft_config_dict = peft.AdaLoraConfig(
                         target_r=16,
                         init_r=24
                     )
                 elif peft_type is peft.PeftType.OFT:
-                    # config_dict = dict()
-                    config_dict = peft.OFTConfig()
+                    peft_config_dict = peft.OFTConfig()
                 elif peft_type is peft.PeftType.GLORA:
-                    config_dict = peft.GLoraConfig(r=16)   
+                    peft_config_dict = peft.GLoraConfig(r=16)   
                 else:
                     logging.warning(f"Unsupported PEFT type {peft_type}, may not work well. ")
-                config_dict = config_dict.__dict__ # 上面是为了约束参数的范围，看到文档，这里是为了灵活性
-                config_dict['peft_type'] = peft_type
+                peft_config_dict = peft_config_dict.__dict__ # 上面是为了约束参数的范围，看到文档，这里是为了灵活性
+                peft_config_dict['peft_type'] = peft_type
                             # target_modules=['qkv'],  # 这里指定想要被 Lora 微调的模块
-                config_dict['target_modules'] = ["query", "value"] # https://github.com/huggingface/peft/blob/main/examples/image_classification/image_classification_peft_lora.ipynb
-                peft_config = peft.get_peft_config(config_dict)
+                peft_config_dict['target_modules'] = ["query", "value"] # https://github.com/huggingface/peft/blob/main/examples/image_classification/image_classification_peft_lora.ipynb
+                peft_config = peft.get_peft_config(peft_config_dict)
                 print(f"peft_config: {peft_config}")
                 # wandb.config.update({"peft": args.peft})
                 if not args.no_wandb:
                     wandb.config['peft_config'] = peft_config # 更新wandb配置
                 # lora 微调
-                backbone = get_peft_model(backbone , 
-                                peft_config,          
-                                )
-                backbone.print_trainable_parameters()
+                backbone = get_peft_model(backbone, peft_config)
+                # backbone.print_trainable_parameters()
             elif args.peft in auto_delta.LAZY_CONFIG_MAPPING:
+                logging.debug("Using thunlp/OpenDelta Approach to implement peft.")
+                peft_config_dict = {}
                 if args.peft == "adapter":
-                    from opendelta import AdapterModel
-                    delta_model = AdapterModel(backbone, 
+                    # from opendelta import AdapterModel
+                    from opendelta.delta_models.adapter import AdapterModel, AdapterConfig
+                    peft_config = AdapterConfig(
                         bottleneck_dim=24, 
                         non_linearity='gelu_new',
-                        #   common_structure=False,
-                        #   common_structure=True,
-                        modified_modules=[
-                            # "attention.output.dense",
-                                        #   "mlp.fc2"
-                            # "dense", "fc2"
-                            '[r][\d+]\.attention', "mlp"
-                                          ], 
-                        # interactive_modify=True
-                          )
+                        modified_modules=['[r][\d+]\.attention', "mlp"], 
+                        )
+                    delta_model = AdapterModel(backbone, 
+                                            #    **peft_config.to_dict()
+                        **{k:v for k, v in peft_config.to_dict().items()
+                           if k in ["bottleneck_dim", "non_linearity", "modified_modules"]},
+                          ) # 好丑，opendelta设计的什么鬼玩意
                     delta_model.freeze_module(exclude=["deltas", "aggregation"])
                     backbone = backbone.to(args.device)
                     delta_model = delta_model.to(args.device)
                     backbone(torch.randn(1, 3, 224, 224).to(args.device)) # 这样才能初始化
-                    delta_model.log() # 现在已经初始化了。
+                    # delta_model.log() # 现在已经初始化了。
+                    
+                    peft_config_dict = peft_config.to_dict()
+                    
+                    
+                    
                 elif args.peft == "prefix":
                     from opendelta.delta_models.prefix_by_linear import PrefixModel, PrefixConfig
-                    delta_model = PrefixModel(backbone, 
-                                        config=PrefixConfig(
-                                            prefix_token_num=25
-                                            ), 
-                                        modified_modules=['key', 'value'])
+                    peft_config = PrefixConfig(
+                        prefix_token_num=25,
+                        modified_modules=['key', 'value']
+                        )
+                    delta_model = PrefixModel(backbone, config = peft_config, modified_modules=peft_config.modified_modules)
                     delta_model.freeze_module(exclude=["deltas", "aggregation"])
-                    delta_model.log()
+                    # delta_model.log()\
+                    peft_config_dict = peft_config.to_dict()
+                        
+                
             elif args.peft == "ensemble":
                 delta_model = AutoModel.from_pretrained('facebook/dinov2-small')
                 delta_model = VitWrapper(delta_model, args.aggregation).to(args.device)
@@ -333,9 +340,17 @@ def get_backbone(args:VPRModel):
                 set_requires_grad(delta_model, True)
                 set_requires_grad(backbone, False)
                 backbone = Ensemble([backbone, delta_model])
+                peft_config_dict = dict(delta_from="facebook/dinov2-small")
+            # elif args.peft == "ensemble_no_pretrain":
+                
+            
                     
-                                        
-                    
+            v = num_trainable_parameters(backbone)
+            print(f"Parameter Efficiency={v/w}, over budget? {v/w>args.parameter_efficiency_budget}")
+            import json
+            peft_config_str = json.dumps(peft_config_dict, indent=4)
+            with open(join(args.save_dir, "peft_config.json"), "w") as f:
+                f.write(peft_config_str)
         
         args.features_dim = 768
         return backbone
