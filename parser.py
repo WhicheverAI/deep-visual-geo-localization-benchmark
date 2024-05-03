@@ -94,14 +94,16 @@ class VPRModel(ArgumentModel):
     # no_wandb: bool = Field(False, help="Disable wandb logging")
     no_wandb: bool = Field(True, help="Disable wandb logging")
     train_batch_size: int = Field(
+        -1,  # auto determined
         # 2,
         # 4,
-        8,
+        # 8,
         # 16,
         help="Number of triplets (query, pos, negs) in a batch. Each triplet consists of 12 images",
     )
     infer_batch_size: int = Field(
-        8, 
+        -1,
+        # 8, 
         # 16, 
         help="Batch size for inference (caching and testing)"
     )
@@ -162,8 +164,8 @@ class VPRModel(ArgumentModel):
         help="When (and if) to apply the l2 norm with shallow aggregation layers",
     )
     aggregation: str = Field(
-        "netvlad",
-        # "gem",
+        # "netvlad",
+        "gem",
         choices=[
             "netvlad",
             "gem",
@@ -203,15 +205,20 @@ class VPRModel(ArgumentModel):
     # freeze_te: int = Field(8, choices=list(range(-1, 14)))
     # peft: str = Field(None, choices=['lora'])
     # peft: Optional[str] = Field(
+    parameter_efficiency_budget: float|None = Field(
+        # None,
+                    0.05, le=1, ge=0, 
+                    help="Parameter efficiency budget for the peft method."
+                    )
     peft: str|None = Field(
-        None,
+        # None,
         # peft.PeftType.LORA.name,
         # peft.PeftType.GLORA.name,
         # peft.PeftType.OFT.name,
         # peft.PeftType.ADALORA.name,
         # peft.PeftType.IA3.name,
         # peft.PeftType.PREFIX_TUNING.name,
-        # "adapter", 
+        "adapter", 
         # "prefix", 
         # "ensemble", 
         choices=list(peft.PeftType.__members__.keys()
@@ -219,8 +226,8 @@ class VPRModel(ArgumentModel):
                      )+['ensemble', "sela_vpr_adapter", ]
         )
     seed: int = Field(0)
-    resume: str = Field(
-        # None
+    resume: str|None = Field(
+        None
         # 意外退出
         # "logs/default/2024-04-09_19-31-26/best_model.pth", 
         # "logs/success/2024-04-09_20-08-56/best_model.pth" # adapter 
@@ -230,7 +237,7 @@ class VPRModel(ArgumentModel):
         # "logs/intermediate/2024-04-09_02-44-12/best_model.pth"
         # "logs/intermediate/2024-04-09_02-03-07/best_model.pth"
         # 完成，用于评测
-        "logs/intermediate/2024-04-09_04-47-52/best_model.pth"
+        # "logs/intermediate/2024-04-09_04-47-52/best_model.pth"
         ,help="Path to load checkpoint from, for resuming training or testing."
         
     )
@@ -318,11 +325,17 @@ def post_args_handle(args: VPRModel)->VPRModel:
         print("显存大小：", properties.total_memory)
         lamb = 1/(i+1)
         average_memory = (1-lamb)*average_memory+lamb*properties.total_memory
+    auto_batch_size = 20/1*num_gpus*average_memory/1024/1024/1024/80
+    auto_batch_size = int(auto_batch_size)
+    print(f"根据显存, 合适的batch_size为: {auto_batch_size}")
     # args.train_batch_size = 20
-    batch_size = args.train_batch_size/1*num_gpus*average_memory/1024/1024/1024/80
-    args.train_batch_size = int(batch_size)
-    args.infer_batch_size = int(batch_size)
-    print(f"根据显存, 自动智能决定batch_size为: {args.train_batch_size}")
+    if args.train_batch_size == -1:
+        args.train_batch_size = int(auto_batch_size)
+    if args.infer_batch_size == -1:
+        args.infer_batch_size = int(auto_batch_size)
+    # linear scaling rule
+    args.lr = 0.00001 * args.train_batch_size/4
+    print(f"根据batch_size={args.train_batch_size}, 自动智能决定学习率为: {args.lr}")
     
     if args.device == "auto":
         from gpu_manager import GPUManager
