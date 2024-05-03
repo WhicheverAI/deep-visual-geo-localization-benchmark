@@ -313,16 +313,26 @@ def get_backbone(args:VPRModel):
                         # interactive_modify=True
                           )
                     delta_model.freeze_module(exclude=["deltas", "aggregation"])
-                    delta_model(torch.randn(1, 3, 224, 224)) # 这样才能初始化
+                    backbone = backbone.to(args.device)
                     delta_model = delta_model.to(args.device)
-                    # delta_model.log() # 这里还没初始化
+                    backbone(torch.randn(1, 3, 224, 224).to(args.device)) # 这样才能初始化
+                    delta_model.log() # 现在已经初始化了。
+                elif args.peft == "prefix":
+                    from opendelta.delta_models.prefix_by_linear import PrefixModel, PrefixConfig
+                    delta_model = PrefixModel(backbone, 
+                                        config=PrefixConfig(
+                                            prefix_token_num=25
+                                            ), 
+                                        modified_modules=['key', 'value'])
+                    delta_model.freeze_module(exclude=["deltas", "aggregation"])
+                    delta_model.log()
             elif args.peft == "ensemble":
-                delta = AutoModel.from_pretrained('facebook/dinov2-small')
-                delta = VitWrapper(delta, args.aggregation).to(args.device)
-                delta = nn.Sequential(delta, nn.Linear(384, 768, bias=True))
-                set_requires_grad(delta, True)
+                delta_model = AutoModel.from_pretrained('facebook/dinov2-small')
+                delta_model = VitWrapper(delta_model, args.aggregation).to(args.device)
+                delta_model = nn.Sequential(delta_model, nn.Linear(384, 768, bias=True))
+                set_requires_grad(delta_model, True)
                 set_requires_grad(backbone, False)
-                backbone = Ensemble([backbone, delta])
+                backbone = Ensemble([backbone, delta_model])
                     
                                         
                     
