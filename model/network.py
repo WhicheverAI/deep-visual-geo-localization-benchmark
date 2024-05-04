@@ -301,6 +301,7 @@ def get_backbone(args:VPRModel):
                 if args.peft == "adapter":
                     # from opendelta import AdapterModel
                     from opendelta.delta_models.adapter import AdapterModel, AdapterConfig
+                    delta_name = AdapterModel.delta_type
                     peft_config = AdapterConfig(
                         bottleneck_dim=24, 
                         non_linearity='gelu_new',
@@ -311,26 +312,29 @@ def get_backbone(args:VPRModel):
                         **{k:v for k, v in peft_config.to_dict().items()
                            if k in ["bottleneck_dim", "non_linearity", "modified_modules"]},
                           ) # 好丑，opendelta设计的什么鬼玩意
-                    delta_model.freeze_module(exclude=["deltas", "aggregation"])
+                    # delta_model.freeze_module(module=backbone, 
+                    #                     exclude=["deltas", "aggregation"],
+                    #                     set_state_dict=False)
                     backbone = backbone.to(args.device)
                     delta_model = delta_model.to(args.device)
                     backbone(torch.randn(1, 3, 224, 224).to(args.device)) # 这样才能初始化
                     # delta_model.log() # 现在已经初始化了。
-                    
                     peft_config_dict = peft_config.to_dict()
-                    
-                    
-                    
+
                 elif args.peft == "prefix":
                     from opendelta.delta_models.prefix_by_linear import PrefixModel, PrefixConfig
+                    delta_name = PrefixModel.delta_type
                     peft_config = PrefixConfig(
                         prefix_token_num=25,
                         modified_modules=['key', 'value']
                         )
-                    delta_model = PrefixModel(backbone, config = peft_config, modified_modules=peft_config.modified_modules)
-                    delta_model.freeze_module(exclude=["deltas", "aggregation"])
+                    delta_model = PrefixModel(backbone, config = peft_config, 
+                                              modified_modules=peft_config.modified_modules)
                     # delta_model.log()\
                     peft_config_dict = peft_config.to_dict()
+                # delta_model.freeze_module(exclude=["deltas"]) # 这个操作有问题，比如adapter的话，OpenDelta根本不知道哪些是delta，服了，垃圾API
+                delta_model.freeze_module(exclude=["deltas", delta_name], 
+                                          set_state_dict=False) 
                         
                 
             elif args.peft == "ensemble":
