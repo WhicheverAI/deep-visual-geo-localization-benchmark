@@ -102,7 +102,8 @@ def main(args:parser.VPRModel):
     #### Resume model, optimizer, and other training parameters
     if args.resume:
         if args.aggregation != 'crn':
-            model, optimizer, best_r5, start_epoch_num, not_improved_num = util.resume_train(args, model, optimizer)
+            model, optimizer, best_r5, start_epoch_num, not_improved_num = util.resume_train(
+                args, model, optimizer, strict=args.peft is None) # peft method only loads partial parameters
         else:
             # CRN uses pretrained NetVLAD, then requires loading with strict=False and
             # does not load the optimizer from the checkpoint file.
@@ -121,7 +122,10 @@ def main(args:parser.VPRModel):
         # When using more than 1GPU, use sync_batchnorm for torch.nn.DataParallel
         model = convert_model(model)
         model = model.cuda()
+        
 
+    torch.save(model.state_dict(), join(args.save_dir, "initial_model_state.pth"))
+    
     #### Training loop
     for epoch_num in range(start_epoch_num, args.epochs_num):
         logging.info(f"Start training epoch: {epoch_num:02d}")
@@ -250,13 +254,18 @@ def main(args:parser.VPRModel):
 
     #### Test best model on test set
     best_model_state_dict = torch.load(join(args.save_dir, "best_model.pth"))["model_state_dict"]
-    model.load_state_dict(best_model_state_dict)
+    model.load_state_dict(best_model_state_dict, strict=args.peft is None)
 
     recalls, recalls_str = test.test(args, test_ds, model, test_method=args.test_method)
     logging.info(f"Recalls on {test_ds}: {recalls_str}")
     recalls_dict = {f"test_R@{val}": 
                     float(rec) 
                     for val, rec in zip(args.recall_values, recalls)}
+    # 导出recalls等指标到json文件
+    import json
+    with open(join(args.save_dir, "results.json"), 'w') as f:
+        json.dump(recalls_dict, f, indent=4)
+        
     if not args.no_wandb:
         wandb.log(recalls_dict, 
             step=epoch_num*loops_num + loop_num
