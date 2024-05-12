@@ -8,8 +8,10 @@ this_directory = this_file.parent
 logs = this_directory / "logs"
 # success_logs = logs / "success"
 # default_logs = logs / "default"
-success_logs = logs / "success"
-default_logs = logs / "default"
+success_logs = logs / "success_new_prefix"
+# success_logs = logs / "opendelta_new_prefix"
+# default_logs = logs / "opendelta_new_prefix"
+default_logs = logs / "success_new_prefix"
 # success_logs = logs / "intermediate"
 # default_logs = logs / "intermediate"
 default_logs.mkdir(exist_ok=True, parents=True)
@@ -22,8 +24,10 @@ for subfolder in default_logs.iterdir():
         continue
     if (subfolder/"best_model.pth"
         ).exists() and (subfolder/"last_model.pth"
-        ).exists():
-        new_success_logs.append(subfolder)
+        ).exists() and (subfolder/"config.json").exists():
+        with open(subfolder/"debug.log") as f:
+            if "Recalls on" in f.read():
+                new_success_logs.append(subfolder)
     elif len(list(subfolder.glob("*.pth")))>=1:
         print("need to check ", subfolder)
 new_success_logs
@@ -43,15 +47,16 @@ class ExperimentModel(VPRModel):
     val_recalls: List[float] = Field([0, 0, 0, 0], 
                                      title="Validation recalls",
                                      description="R@", 
-                                     ge=0, le=100
+                                     # ge=0, le=100
                                      )
     test_recalls: List[float] = Field([0, 0, 0, 0], 
                                       title="Test recalls",
                                       description="test_R@", 
-                                      ge=0, le=100)
+                                      # ge=0, le=100
+                                      )
 import tomli
 import re
-def text_to_experiment(text:str):
+def text_to_experiment(text:str, folder):
     lines = text.splitlines(keepends=False)
     met_args = False
     met_test = False
@@ -64,23 +69,27 @@ def text_to_experiment(text:str):
     # test_r_list = []
     for line in lines:
         if "Arguments: " in line:
-            if met_args: raise TypeError()
-            met_args = True
+            # if met_args: raise TypeError()
+            # met_args = True
             splits = line.split("Arguments:")
             date_time_str = splits[0].strip()
             date_time_object = datetime.datetime.strptime(date_time_str, "%Y-%m-%d %H:%M:%S")
             
-            arg_str = splits[1].strip()
-            # arguments = arguments.split(" ")
-            # arguments = [arg for arg in arguments if "None" not in arg]
+            # arg_str = splits[1].strip()
+            # # arguments = arguments.split(" ")
+            # # arguments = [arg for arg in arguments if "None" not in arg]
 
-            pattern = r"(\w+)\s*=\s*(\[[^\]]*\]|'[^']*'|[^\s,]+)"
-            matches = re.findall(pattern, arg_str)
-            # arguments = [f"{key}={value}" for key, value in matches 
-            #              if value!="None"]
-            vpr_dict = {}
-            for key, value in matches:
-                vpr_dict[key.strip()] = eval(value.strip())  # 使用 eval() 解析字符串值
+            # pattern = r"(\w+)\s*=\s*(\[[^\]]*\]|'[^']*'|[^\s,]+)"
+            # matches = re.findall(pattern, arg_str)
+            # # arguments = [f"{key}={value}" for key, value in matches 
+            # #              if value!="None"]
+            # vpr_dict = {}
+            # for key, value in matches:
+            #     vpr_dict[key.strip()] = eval(value.strip())  # 使用 eval() 解析字符串值
+            
+            with open(folder/"config.json") as f:
+                import json
+                vpr_dict = json.load(f)
             
             # toml 不支持 None，这是个严重的缺陷
             # toml_str = "\n".join(arguments
@@ -116,9 +125,10 @@ not_interested = ["datasets_folder", "my_extra_fields",
 experiments = []
 for subfolder in success_logs.iterdir():
     if not subfolder.is_dir(): continue
+    if not (subfolder/"config.json").exists(): continue
     with open(subfolder/"debug.log", "r") as f:
         contents = f.read()
-    experiment = text_to_experiment(contents)
+    experiment = text_to_experiment(contents, subfolder)
     # exp_dict = experiment.__dict__
     exp_dict = experiment
     for i, r in enumerate(experiment['recall_values']):
@@ -149,7 +159,8 @@ df = df[interested_columns + other_columns]
 df
 
 #%%
-df.to_csv("logs/exp_summary.csv")
+csv = success_logs / 'exp_summary.csv'
+df.to_csv(csv.as_posix())
 #%%
 # 注意msls，验证集和测试集应该是一样的，0表示没跑完
 # 注意pitts30k，验证集应该和测试集不一样，0也是没跑完。
