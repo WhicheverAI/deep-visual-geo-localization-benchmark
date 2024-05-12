@@ -21,6 +21,7 @@ from model.sync_batchnorm import convert_model
 from model.functional import sare_ind, sare_joint
 
 from bigmodelvis import Visualization
+from delta_residual.utils import print_trainable_parameters
 
 #### Initial setup: parser, logging...
 
@@ -72,7 +73,6 @@ def main(args:parser.VPRModel):
         args.features_dim *= args.netvlad_clusters
 
     model = torch.nn.DataParallel(model)
-    Visualization(model).structure_graph()
 
     #### Setup Optimizer and Loss
     if args.aggregation == "crn":
@@ -123,7 +123,10 @@ def main(args:parser.VPRModel):
         model = convert_model(model)
         model = model.cuda()
         
-
+    # 确认训练的模型是不是你真的想要训练的模型
+    print_trainable_parameters(model)
+    Visualization(model).structure_graph()
+    # logging.debug(Visualization(model).structure_graph(printTree=False))
     torch.save(model.state_dict(), join(args.save_dir, "initial_model_state.pth"))
     
     #### Training loop
