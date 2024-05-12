@@ -60,7 +60,7 @@ class GeoLocalizationNet(nn.Module):
             elif args.l2 == "none":
                 self.aggregation = nn.Sequential(self.aggregation, Flatten())
         
-        if args.fc_output_dim != None:
+        if args.fc_output_dim is not None:
             # Concatenate fully connected layer to the aggregation layer
             self.aggregation = nn.Sequential(self.aggregation,
                                              nn.Linear(args.features_dim, args.fc_output_dim),
@@ -70,6 +70,10 @@ class GeoLocalizationNet(nn.Module):
     def forward(self, x):
         x = self.backbone(x)
         x = self.aggregation(x)
+        # x = torch.squeeze(x) # 把 b x 768 x 1 x 1 变成 b x 768 错误 b可能也是1
+        x = x.squeeze(dim=-1).squeeze(dim=-1)
+        # 把 b x 768 x 1 x 1 变成 b x 768 x 1
+        # x = torch.squeeze(x, dim=2) 
         return x
 
 
@@ -170,11 +174,11 @@ def get_backbone(args:VPRModel):
             logging.debug(f"Truncate CCT at transformers encoder {args.trunc_te}")
             backbone.classifier.blocks = torch.nn.ModuleList(backbone.classifier.blocks[:args.trunc_te].children())
         if args.freeze_te:
-            logging.debug(f"Freeze all the layers up to tranformer encoder {args.freeze_te}")
+            logging.debug(f"Freeze all the layers up to transformer encoder {args.freeze_te}")
             for p in backbone.parameters():
                 p.requires_grad = False
             for name, child in backbone.classifier.blocks.named_children():
-                if int(name) > args.freeze_te:
+                if int(name) > args.freeze_te: # 假如 0-11 层，freeze_te=8，那么就是9,10,11
                     for params in child.parameters():
                         params.requires_grad = True
         args.features_dim = 384
@@ -389,7 +393,7 @@ class VitWrapper(nn.Module):
         if self.aggregation in ["netvlad", "gem"]:
             res = self.vit_model(x).last_hidden_state[:, 1:, :]
         else:
-            res = self.vit_model(x).last_hidden_state[:, 0, :]
+            res = self.vit_model(x).last_hidden_state[:, 0:1, :]
         return res
     
 class FacebookVitWrapper(nn.Module):

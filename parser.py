@@ -164,8 +164,9 @@ class VPRModel(ArgumentModel):
         help="When (and if) to apply the l2 norm with shallow aggregation layers",
     )
     aggregation: str = Field(
-        # "netvlad",
-        "gem",
+        "netvlad",
+        # "gem",
+        # "cls",
         choices=[
             "netvlad",
             "gem",
@@ -201,8 +202,9 @@ class VPRModel(ArgumentModel):
         help="Off-the-shelf networks from popular GitHub repos. Only with ResNet-50/101 + GeM + FC 2048",
     )
     trunc_te: int|None = Field(None, choices=list(range(0, 14)))
-    freeze_te: int|None = Field(None, choices=list(range(-1, 14))) #TODO 我改了这个参数的意义，需要改下这个范围
+    # freeze_te: int|None = Field(None, choices=list(range(-1, 14))) #TODO 我改了这个参数的意义，需要改下这个范围
     # freeze_te: int = Field(8, choices=list(range(-1, 14)))
+    freeze_te: int = Field(12, choices=list(range(-1, 14)))
     # peft: str = Field(None, choices=['lora'])
     # peft: Optional[str] = Field(
     parameter_efficiency_budget: float|None = Field(
@@ -211,7 +213,7 @@ class VPRModel(ArgumentModel):
                     help="Parameter efficiency budget for the peft method."
                     )
     peft: str|None = Field(
-        # None,
+        None,
         # peft.PeftType.LORA.name,
         # peft.PeftType.GLORA.name,
         # peft.PeftType.OFT.name,
@@ -219,7 +221,7 @@ class VPRModel(ArgumentModel):
         # peft.PeftType.IA3.name,
         # peft.PeftType.PREFIX_TUNING.name,
         # "adapter", 
-        "prefix", 
+        # "prefix", 
         # "ensemble", 
         choices=list(peft.PeftType.__members__.keys()
                      )+list(auto_delta.LAZY_CONFIG_MAPPING.keys()
