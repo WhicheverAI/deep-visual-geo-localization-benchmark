@@ -305,7 +305,8 @@ def get_backbone(args:VPRModel):
                     peft_config = AdapterConfig(
                         bottleneck_dim=24, 
                         non_linearity='gelu_new',
-                        modified_modules=['[r][\d+]\.attention', "mlp"], 
+                        # modified_modules=['[r][\d+]\.attention', "mlp"], 
+                        modified_modules=['attention.attention', "mlp"], 
                         )
                     delta_model = AdapterModel(backbone, 
                                             #    **peft_config.to_dict()
