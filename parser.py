@@ -164,8 +164,8 @@ class VPRModel(ArgumentModel):
         help="When (and if) to apply the l2 norm with shallow aggregation layers",
     )
     aggregation: str = Field(
-        "netvlad",
-        # "gem",
+        # "netvlad",
+        "gem",
         choices=[
             "netvlad",
             "gem",
@@ -218,8 +218,8 @@ class VPRModel(ArgumentModel):
         # peft.PeftType.ADALORA.name,
         # peft.PeftType.IA3.name,
         # peft.PeftType.PREFIX_TUNING.name,
-        "adapter", 
-        # "prefix", 
+        # "adapter", 
+        "prefix", 
         # "ensemble", 
         choices=list(peft.PeftType.__members__.keys()
                      )+list(auto_delta.LAZY_CONFIG_MAPPING.keys()
@@ -290,9 +290,9 @@ class VPRModel(ArgumentModel):
         help="Path with all datasets"
     )
     dataset_name: str = Field(
-        "pitts30k", 
+        # "pitts30k", 
         # "pitts250k", 
-        # "mapillary_sls", 
+        "mapillary_sls", 
         help="Relative path of the dataset")
     pca_dataset_folder: str|None = Field(
         None,
